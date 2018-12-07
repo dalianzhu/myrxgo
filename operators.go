@@ -58,23 +58,21 @@ func (o *Observable) FlatMap(fn func(interface{}) *Observable) *Observable {
 	return outOb
 }
 
-func (o *Observable) Distinct(fn func(interface{}) interface{}) *Observable {
-	inChan := make(chan interface{})
-
-	outOb := FromChan(inChan).Map(fn)
+func (o *Observable) Distinct() *Observable {
+	outOb := newObservable()
 	outOb.Name = o.Name + "-Distinct"
-	log.Printf("ob %v run,from Map", outOb.Name)
+	log.Printf("ob %v run", outOb.Name)
 
 	set := make(map[interface{}]struct{})
 	safeGo(func(i ...interface{}) {
 		for item := range o.C {
 			_, ok := set[item]
 			if !ok {
-				inChan <- item
+				outOb.C <- item
 				set[item] = struct{}{}
 			}
 		}
-		close(inChan)
+		outOb.close()
 	})
 
 	return outOb

@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+func Equal(t *testing.T, i1, i2 interface{}) {
+	if i1 != i2 {
+		log.Printf("Equal %v != %v", i1, i2)
+		t.Fatal("%v != %v", i1, i2)
+	}
+	log.Printf("i1 == i2 == %v", i1)
+}
+
 func TestMap(t *testing.T) {
 	arr := []string{
 		"hello",
@@ -15,17 +23,17 @@ func TestMap(t *testing.T) {
 		"world",
 		"be",
 	}
-
-	From(arr).
+	ret := <-From(arr).
 		Filter(func(i interface{}) bool {
 			return len(i.(string)) > 3
 		}).
 		Map(func(i interface{}) interface{} {
 			return i.(string) + "haha"
 		}).
-		Run(func(i interface{}) {
-			fmt.Println(i)
-		})
+		AsList().C
+	retlist := ret.([]interface{})
+	Equal(t, retlist[0], "hellohaha")
+	Equal(t, retlist[1], "worldhaha")
 }
 
 func TestFromChan(t *testing.T) {
@@ -48,10 +56,11 @@ func TestFromChan(t *testing.T) {
 		}
 		close(c)
 	}()
-	go ob3.Run(func(i interface{}) {
-		fmt.Println(i)
-	})
-	time.Sleep(time.Second * 4)
+	ret := <-ob3.AsList().C
+	retlist := ret.([]interface{})
+	log.Println(retlist)
+	Equal(t, retlist[0], 2)
+	Equal(t, retlist[1], 4)
 }
 
 func TestClone(t *testing.T) {
@@ -62,14 +71,20 @@ func TestClone(t *testing.T) {
 
 	var obForked Observable
 	ob := From(arr).ClonePtr(&obForked)
+	var ret1, ret2 interface{}
+	go func() {
+		ret1 = <-ob.AsList().C
+	}()
+	go func() {
+		ret2 = <-obForked.AsList().C
+	}()
 
-	go ob.Run(func(i interface{}) {
-		fmt.Println(i)
-	})
-	go obForked.Run(func(i interface{}) {
-		fmt.Println(i)
-	})
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
+	ret1list := ret1.([]interface{})
+	ret2list := ret2.([]interface{})
+	log.Println(ret1list, ret2list)
+	Equal(t, ret2list[0], ret1list[0])
+	Equal(t, ret2list[1], ret1list[1])
 }
 
 func TestAsList(t *testing.T) {
@@ -87,6 +102,7 @@ func TestAsList(t *testing.T) {
 			},
 		).AsList().C
 	log.Println(l)
+	Equal(t, l.([]interface{})[1], "my_hi")
 }
 
 func TestSafeRun(t *testing.T) {
@@ -117,14 +133,21 @@ func TestFlatMap(t *testing.T) {
 		"haha can",
 	}
 
-	From(arr).
+	ret := <-From(arr).
 		FlatMap(func(i interface{}) *Observable {
 			ob := From(strings.Split(i.(string), " "))
 			return ob
-		}).
-		Run(func(i interface{}) {
-			log.Println("结果", i)
-		})
+		}).AsList().C
+	retlist := ret.([]interface{})
+	log.Println(retlist)
+	func() {
+		for _, item := range retlist {
+			if item == "idea" {
+				return
+			}
+		}
+		t.Fatal("TestFlatMap cant find 'idea'")
+	}()
 }
 
 func TestSubscribe(t *testing.T) {
@@ -175,21 +198,32 @@ func TestDistinct(t *testing.T) {
 		"world",
 		"be",
 	}
-	log.Println(<-From(arr).Distinct(
-		func(i interface{}) interface{} {
-			return i
-		},
-	).AsList().C)
-	time.Sleep(time.Second)
+	ret := <-From(arr).Distinct().AsList().C
+	retlist := ret.([]interface{})
+	log.Println(retlist)
+	Equal(t, retlist[2], "world")
 }
 
 func TestAll(t *testing.T) {
+	log.Println("TestMap")
 	TestMap(t)
+
+	log.Println("TestFromChan")
 	TestFromChan(t)
+
+	log.Println("TestClone")
 	TestClone(t)
+
+	log.Println("TestAsList")
 	TestAsList(t)
 	//TestSafeRun(t)
+
+	log.Println("TestFlatMap")
 	TestFlatMap(t)
+
+	log.Println("TestSubscribe")
 	TestSubscribe(t)
+
+	log.Println("TestDistinct")
 	TestDistinct(t)
 }

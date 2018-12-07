@@ -51,6 +51,8 @@ func From(arr interface{}) *Observable {
 
 func FromChan(c chan interface{}) *Observable {
 	o := new(Observable)
+	o.Name = UUID()[:8]
+	log.Printf("ob %v run, FromChan", o.Name)
 	o.C = c
 	o.OnClose = func() {}
 	o.WaitClose = make(chan int, 1)
@@ -90,10 +92,13 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 	outOb.Name = o.Name + "-ClonePtr"
 	log.Printf("ob %v run", outOb.Name)
 
+	var lk sync.Mutex
 	safeGo(func(i ...interface{}) {
 		for item := range o.C {
 			// 对支线发数据
 			safeGo(func(i ...interface{}) {
+				lk.Lock()
+				defer lk.Unlock()
 				select {
 				case <-refOb.WaitClose:
 					//log.Printf("%v WaitClose", refOb.Name)
@@ -104,12 +109,10 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 
 			}, item)
 			// 对主线发数据
-			safeGo(func(i ...interface{}) {
-				select {
-				case <-outOb.WaitClose:
-				case outOb.C <- i[0]:
-				}
-			}, item)
+			select {
+			case <-outOb.WaitClose:
+			case outOb.C <- item:
+			}
 		}
 		refOb.close()
 		outOb.close()
