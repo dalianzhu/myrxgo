@@ -1,6 +1,7 @@
 package myrxgo
 
 import (
+	"context"
 	"log"
 	"reflect"
 	"sync"
@@ -11,21 +12,25 @@ type Observable struct {
 	C         chan interface{}
 	OnClose   func()
 	Name      string
-	WaitClose chan int
+	WaitClose context.Context
+	Cancel    context.CancelFunc
 }
 
 func newObservable() *Observable {
 	o := new(Observable)
 	o.C = make(chan interface{})
 	o.OnClose = func() {}
-	o.WaitClose = make(chan int, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	o.WaitClose = ctx
+	o.Cancel = cancel
+
 	return o
 }
 
 func (o *Observable) close() {
-	log.Printf("ob %v close", o.Name)
-	close(o.WaitClose)
 	safeGo(func(i ...interface{}) {
+		log.Printf("ob %v close", o.Name)
+		o.Cancel()
 		time.Sleep(time.Microsecond * 10)
 		close(o.C)
 		o.OnClose()
@@ -50,12 +55,10 @@ func From(arr interface{}) *Observable {
 }
 
 func FromChan(c chan interface{}) *Observable {
-	o := new(Observable)
+	o := newObservable()
 	o.Name = UUID()[:8]
 	log.Printf("ob %v run, FromChan", o.Name)
 	o.C = c
-	o.OnClose = func() {}
-	o.WaitClose = make(chan int, 1)
 	return o
 }
 
@@ -92,28 +95,38 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 	outOb.Name = o.Name + "-ClonePtr"
 	log.Printf("ob %v run", outOb.Name)
 
-	var lk sync.Mutex
 	safeGo(func(i ...interface{}) {
-		for item := range o.C {
-			// 对支线发数据
-			safeGo(func(i ...interface{}) {
-				lk.Lock()
-				defer lk.Unlock()
-				select {
-				case <-refOb.WaitClose:
-					//log.Printf("%v WaitClose", refOb.Name)
-				case refOb.C <- i[0]:
-				case <-time.After(time.Second * 3):
-					log.Printf("%v droped item %v", refOb.Name, item)
+		queue := NewQueue()
+		safeGo(func(i ...interface{}) {
+			for refOb.WaitClose.Err() == nil {
+				x := queue.Pop()
+				if x == nil {
+					continue
 				}
 
-			}, item)
+				select {
+				case <-refOb.WaitClose.Done():
+					log.Printf("%v WaitClose %v %v", refOb.Name, x, refOb.WaitClose.Err())
+				case refOb.C <- x:
+					//log.Printf("%v send %v", refOb.Name, x)
+				case <-time.After(time.Second):
+					log.Printf("%v droped item %v", refOb.Name, x)
+				}
+			}
+		})
+
+		for item := range o.C {
+			// 对支线发数据
+			//log.Printf("ClonePtr %v enqueue %v", refOb.Name, item)
+			queue.Append(item)
+
 			// 对主线发数据
 			select {
-			case <-outOb.WaitClose:
+			case <-outOb.WaitClose.Done():
 			case outOb.C <- item:
 			}
 		}
+
 		refOb.close()
 		outOb.close()
 	})

@@ -71,15 +71,18 @@ func TestClone(t *testing.T) {
 
 	var obForked Observable
 	ob := From(arr).ClonePtr(&obForked)
-	var ret1, ret2 interface{}
+
+	var ret1 interface{}
+	var ret2 interface{}
 	go func() {
 		ret1 = <-ob.AsList().C
+		log.Println(ret1)
 	}()
 	go func() {
 		ret2 = <-obForked.AsList().C
 	}()
-
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second * 4)
+	log.Println(ret1, ret2)
 	ret1list := ret1.([]interface{})
 	ret2list := ret2.([]interface{})
 	log.Println(ret1list, ret2list)
