@@ -96,29 +96,19 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 	log.Printf("ob %v run", outOb.Name)
 
 	safeGo(func(i ...interface{}) {
-		queue := NewQueue()
-		safeGo(func(i ...interface{}) {
-			for refOb.WaitClose.Err() == nil {
-				x := queue.Pop()
-				if x == nil {
-					continue
-				}
-
-				select {
-				case <-refOb.WaitClose.Done():
-					log.Printf("%v WaitClose %v %v", refOb.Name, x, refOb.WaitClose.Err())
-				case refOb.C <- x:
-					//log.Printf("%v send %v", refOb.Name, x)
-				case <-time.After(time.Second):
-					log.Printf("%v droped item %v", refOb.Name, x)
-				}
-			}
-		})
 
 		for item := range o.C {
 			// 对支线发数据
 			//log.Printf("ClonePtr %v enqueue %v", refOb.Name, item)
-			queue.Append(item)
+			select {
+			case <-refOb.WaitClose.Done():
+				log.Printf("%v WaitClose %v %v", refOb.Name, item,
+					refOb.WaitClose.Err())
+			case refOb.C <- item:
+				//log.Printf("%v send %v", refOb.Name, x)
+			case <-time.After(time.Second):
+				log.Printf("%v droped item %v", refOb.Name, item)
+			}
 
 			// 对主线发数据
 			select {
