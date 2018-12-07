@@ -167,12 +167,29 @@ func TestSubscribe(t *testing.T) {
 	time.Sleep(time.Second * 3)
 }
 
+func TestDistinct(t *testing.T) {
+	arr := []string{
+		"hello",
+		"my",
+		"hello",
+		"world",
+		"be",
+	}
+	log.Println(<-From(arr).Distinct(
+		func(i interface{}) interface{} {
+			return i
+		},
+	).AsList().C)
+	time.Sleep(time.Second)
+}
+
 func TestAll(t *testing.T) {
 	TestMap(t)
 	TestFromChan(t)
 	TestClone(t)
 	TestAsList(t)
-	TestSafeRun(t)
+	//TestSafeRun(t)
 	TestFlatMap(t)
 	TestSubscribe(t)
+	TestDistinct(t)
 }
