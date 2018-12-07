@@ -1,4 +1,4 @@
-package observable
+package myrxgo
 
 type IOnNext interface {
 	OnNext(interface{})

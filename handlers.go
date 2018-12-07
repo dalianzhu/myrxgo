@@ -1,4 +1,4 @@
-package observable
+package myrxgo
 
 func NewHandler(fn func(i interface{})) *Observer {
 	obs := new(Observer)

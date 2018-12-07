@@ -1,4 +1,4 @@
-package observable
+package myrxgo
 
 import (
 	"sync"
