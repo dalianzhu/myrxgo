@@ -96,7 +96,6 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 	log.Printf("ob %v run", outOb.Name)
 
 	safeGo(func(i ...interface{}) {
-
 		for item := range o.C {
 			// 对支线发数据
 			//log.Printf("ClonePtr %v enqueue %v", refOb.Name, item)
@@ -106,8 +105,6 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 					refOb.WaitClose.Err())
 			case refOb.C <- item:
 				//log.Printf("%v send %v", refOb.Name, x)
-			case <-time.After(time.Second):
-				log.Printf("%v droped item %v", refOb.Name, item)
 			}
 
 			// 对主线发数据
