@@ -11,7 +11,7 @@ import (
 func Equal(t *testing.T, i1, i2 interface{}) {
 	if i1 != i2 {
 		log.Printf("Equal %v != %v", i1, i2)
-		t.Fatal("%v != %v", i1, i2)
+		t.Fatalf("%v != %v", i1, i2)
 	}
 	log.Printf("i1 == i2 == %v", i1)
 }
