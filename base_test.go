@@ -207,7 +207,39 @@ func TestDistinct(t *testing.T) {
 	Equal(t, retlist[2], "world")
 }
 
+func TestFromStream(t *testing.T) {
+	arr := []string{
+		"hello",
+		"world",
+	}
+	var ret []string
+
+	mainStream := From(arr).
+		Map(func(i interface{}) interface{} {
+			return i.(string) + "haha"
+		})
+
+	subStream := FromStream(mainStream).
+		Map(func(i interface{}) interface{} {
+			return i.(string) + "sub"
+		})
+
+	go mainStream.Run(func(i interface{}) {
+		fmt.Println("main ", i)
+	})
+
+	go subStream.Run(func(i interface{}) {
+		fmt.Println("sub ", i)
+		ret = append(ret, i.(string))
+	})
+
+	time.Sleep(time.Second)
+	Equal(t, len(ret), 2)
+	Equal(t, ret[0], "hellohahasub")
+}
+
 func TestAll(t *testing.T) {
+	//go test -v myrxgo -test.run TestAll
 	log.Println("TestMap")
 	TestMap(t)
 
@@ -229,4 +261,7 @@ func TestAll(t *testing.T) {
 
 	log.Println("TestDistinct")
 	TestDistinct(t)
+
+	log.Println("TestFromStream")
+	TestFromStream(t)
 }

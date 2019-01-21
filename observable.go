@@ -9,11 +9,12 @@ import (
 )
 
 type Observable struct {
-	C         chan interface{}
-	OnClose   func()
-	Name      string
-	WaitClose context.Context
-	Cancel    context.CancelFunc
+	C            chan interface{}
+	OnClose      func()
+	Name         string
+	WaitClose    context.Context
+	Cancel       context.CancelFunc
+	OnStepFinish func(interface{})
 }
 
 func newObservable() *Observable {
@@ -23,6 +24,8 @@ func newObservable() *Observable {
 	ctx, cancel := context.WithCancel(context.Background())
 	o.WaitClose = ctx
 	o.Cancel = cancel
+	o.OnStepFinish = func(i interface{}) {
+	}
 
 	return o
 }
@@ -47,6 +50,7 @@ func From(arr interface{}) *Observable {
 			for i := 0; i < val.Len(); i++ {
 				e := val.Index(i)
 				outOb.C <- e.Interface()
+				outOb.OnStepFinish(e.Interface())
 			}
 		}
 		outOb.close()
@@ -77,10 +81,26 @@ func (o *Observable) Merge(inputObservable *Observable,
 			safeRun(func() {
 				ret := fc(item, ifItem)
 				outOb.C <- ret
+				outOb.OnStepFinish(ret)
 			})
 		}
 		outOb.close()
 	})
+	return outOb
+}
+
+func FromStream(source *Observable) *Observable {
+	inOutOb := make(chan interface{})
+	outOb := FromChan(inOutOb)
+	outOb.Name = source.Name + "-FromStream"
+
+	source.OnStepFinish = func(i interface{}) {
+		inOutOb <- i
+	}
+	source.OnClose = func() {
+		source.OnClose()
+		close(inOutOb)
+	}
 	return outOb
 }
 
@@ -104,6 +124,7 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 				log.Printf("%v WaitClose %v %v", refOb.Name, item,
 					refOb.WaitClose.Err())
 			case refOb.C <- item:
+				refOb.OnStepFinish(item)
 				//log.Printf("%v send %v", refOb.Name, x)
 			}
 
@@ -111,6 +132,7 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 			select {
 			case <-outOb.WaitClose.Done():
 			case outOb.C <- item:
+				outOb.OnStepFinish(item)
 			}
 		}
 

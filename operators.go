@@ -26,6 +26,7 @@ func (o *Observable) Map(fc func(interface{}) interface{}) *Observable {
 
 		for future := range futures {
 			outOb.C <- future.GetResult()
+			outOb.OnStepFinish(future.GetResult())
 		}
 		outOb.close()
 	})
@@ -47,6 +48,7 @@ func (o *Observable) FlatMap(fn func(interface{}) *Observable) *Observable {
 				applyOb.Run(
 					func(i interface{}) {
 						outOb.C <- i
+						outOb.OnStepFinish(i)
 					},
 				)
 			}, item)
@@ -69,6 +71,7 @@ func (o *Observable) Distinct() *Observable {
 			_, ok := set[item]
 			if !ok {
 				outOb.C <- item
+				outOb.OnStepFinish(item)
 				set[item] = struct{}{}
 			}
 		}
@@ -102,6 +105,7 @@ func (o *Observable) Filter(fc func(interface{}) bool) *Observable {
 			v := future.GetResult().([]interface{})
 			if v[0].(bool) {
 				outOb.C <- v[1]
+				outOb.OnStepFinish(v[1])
 			}
 		}
 		outOb.close()
@@ -121,6 +125,7 @@ func (o *Observable) AsList() *Observable {
 			ret = append(ret, item)
 		}
 		outOb.C <- ret
+		outOb.OnStepFinish(ret)
 		outOb.close()
 	}()
 	return outOb
