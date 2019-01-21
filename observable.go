@@ -59,11 +59,17 @@ func From(arr interface{}) *Observable {
 }
 
 func FromChan(c chan interface{}) *Observable {
-	o := newObservable()
-	o.Name = UUID()[:8]
-	log.Printf("ob %v run, FromChan", o.Name)
-	o.C = c
-	return o
+	outOb := newObservable()
+	outOb.Name = UUID()[:8]
+	log.Printf("ob %v run, FromChan", outOb.Name)
+	safeGo(func(i ...interface{}) {
+		for item := range c {
+			outOb.C <- item
+			outOb.OnStepFinish(item)
+		}
+		outOb.close()
+	})
+	return outOb
 }
 
 func (o *Observable) Merge(inputObservable *Observable,
