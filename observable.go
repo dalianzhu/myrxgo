@@ -103,7 +103,9 @@ func FromStream(source *Observable) *Observable {
 	source.OnStepFinish = func(i interface{}) {
 		inOutOb <- i
 	}
+	sourceClose := source.OnClose
 	source.OnClose = func() {
+		sourceClose()
 		close(inOutOb)
 	}
 	return outOb
