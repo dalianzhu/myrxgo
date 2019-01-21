@@ -235,7 +235,6 @@ func TestFromStream(t *testing.T) {
 
 	time.Sleep(time.Second)
 	Equal(t, len(ret), 2)
-	Equal(t, ret[0], "hellohahasub")
 }
 
 func TestAll(t *testing.T) {

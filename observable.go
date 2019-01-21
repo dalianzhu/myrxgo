@@ -98,7 +98,6 @@ func FromStream(source *Observable) *Observable {
 		inOutOb <- i
 	}
 	source.OnClose = func() {
-		source.OnClose()
 		close(inOutOb)
 	}
 	return outOb
