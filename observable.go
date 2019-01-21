@@ -15,6 +15,7 @@ type Observable struct {
 	WaitClose    context.Context
 	Cancel       context.CancelFunc
 	OnStepFinish func(interface{})
+	Lock         sync.Mutex
 }
 
 func newObservable() *Observable {
@@ -96,13 +97,19 @@ func (o *Observable) Merge(inputObservable *Observable,
 }
 
 func FromStream(source *Observable) *Observable {
+	source.Lock.Lock()
+	defer source.Lock.Unlock()
+
 	inOutOb := make(chan interface{})
 	outOb := FromChan(inOutOb)
 	outOb.Name = source.Name + "-FromStream"
 
+	sourceOnStepFinish := source.OnStepFinish
 	source.OnStepFinish = func(i interface{}) {
+		sourceOnStepFinish(i)
 		inOutOb <- i
 	}
+
 	sourceClose := source.OnClose
 	source.OnClose = func() {
 		sourceClose()
