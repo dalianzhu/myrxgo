@@ -16,6 +16,7 @@ func Equal(t *testing.T, i1, i2 interface{}) {
 	log.Printf("i1 == i2 == %v", i1)
 }
 
+//go test -v myrxgo -test.run Testxxx
 func TestMap(t *testing.T) {
 	arr := []string{
 		"hello",
@@ -174,9 +175,9 @@ func TestSubscribe(t *testing.T) {
 	})
 
 	var ob2 Observable
-	subject := NewReplaySubject()
-	subject.Add(obs1)
-	subject.Add(obs2)
+	subject := NewSubject()
+	subject.Subscribe(obs1)
+	subject.Subscribe(obs2)
 
 	go From(arr).
 		Filter(func(i interface{}) bool {
@@ -237,30 +238,86 @@ func TestFromStream(t *testing.T) {
 	Equal(t, len(ret), 2)
 }
 
-func TestAll(t *testing.T) {
-	//go test -v myrxgo -test.run TestAll
-	log.Println("TestMap")
-	TestMap(t)
+func TestSubject(t *testing.T) {
+	subject := NewSubject()
 
-	log.Println("TestFromChan")
-	TestFromChan(t)
+	var ret1 []interface{}
+	var ret2 []interface{}
+	var ret3 []interface{}
 
-	log.Println("TestClone")
-	TestClone(t)
+	subject.Subscribe(NewObserver(func(i interface{}) {
+		fmt.Println("send data 1 ", i)
+		ret1 = append(ret1, i)
+	}))
+	subject.Subscribe(NewObserver(func(i interface{}) {
+		fmt.Println("send data 2 ", i)
+		ret2 = append(ret2, i)
+	}))
 
-	log.Println("TestAsList")
-	TestAsList(t)
-	//TestSafeRun(t)
+	ch := make(chan interface{})
+	go func() {
+		FromChan(ch).Subscribe(subject)
+	}()
 
-	log.Println("TestFlatMap")
-	TestFlatMap(t)
+	loop := 0
+	for {
+		fmt.Println("loop", loop)
+		ch <- time.Now().Unix()
+		time.Sleep(time.Microsecond * 400)
 
-	log.Println("TestSubscribe")
-	TestSubscribe(t)
+		if loop == 2 {
+			first := subject.List()[0]
+			subject.Unsubscribe(first)
+		}
 
-	log.Println("TestDistinct")
-	TestDistinct(t)
+		if loop == 3 {
+			subject.Subscribe(NewObserver(func(i interface{}) {
+				fmt.Println("send data 3 ", i)
+				ret3 = append(ret3, i)
+			}))
+		}
 
-	log.Println("TestFromStream")
-	TestFromStream(t)
+		if loop == 4 {
+			time.Sleep(time.Microsecond * 200)
+			break
+		}
+
+		fmt.Println(subject.List())
+		loop += 1
+		time.Sleep(time.Microsecond * 100)
+	}
+	fmt.Println(ret1)
+	Equal(t, len(ret1), 3)
+	fmt.Println(ret2)
+	Equal(t, len(ret2), 5)
+	fmt.Println(ret3)
+	Equal(t, len(ret3), 1)
+}
+
+func TestNewAsyncObserver(t *testing.T) {
+	ch := make(chan interface{})
+	start := time.Now()
+	loop := 0
+	go func() {
+		for {
+			ch <- time.Now().Unix()
+			if loop == 20 {
+				time.Sleep(time.Millisecond * 500)
+				close(ch)
+				break
+			}
+			loop += 1
+		}
+	}()
+
+	<-FromChan(ch).Subscribe(NewAsyncObserver(
+		func(i interface{}) {
+			time.Sleep(time.Millisecond * 100)
+			fmt.Println(i)
+		}))
+	end := time.Since(start)
+	fmt.Println("costs time ", end)
+	if end > time.Millisecond*600 {
+		t.Fatal("costs time too much")
+	}
 }

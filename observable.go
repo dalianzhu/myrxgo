@@ -157,30 +157,30 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 	return outOb
 }
 
-func (o *Observable) Subscribe(obs IOnNext) {
+func (o *Observable) Subscribe(obs IObserver) chan int {
 	log.Println("run", o.Name, "start")
-	var wg sync.WaitGroup
-	for item := range o.C {
-		safeGo(func(i ...interface{}) {
-			wg.Add(1)
-			defer wg.Done()
-			obs.OnNext(i[0])
-		}, item)
-	}
-	wg.Wait()
-	log.Println("run", o.Name, "exit")
+	fin := make(chan int, 1)
+	go func() {
+		for item := range o.C {
+			safeRun(func() {
+				switch v := item.(type) {
+				case error:
+					obs.OnErr(v)
+				default:
+					obs.OnNext(v)
+				}
+			})
+		}
+		log.Println("run", o.Name, "exit")
+		fin <- 1
+	}()
+	return fin
 }
 
 func (o *Observable) Run(fn func(i interface{})) {
 	log.Println("run", o.Name, "start")
-	var wg sync.WaitGroup
 	for item := range o.C {
-		safeGo(func(i ...interface{}) {
-			wg.Add(1)
-			defer wg.Done()
-			fn(i[0])
-		}, item)
+		fn(item)
 	}
-	wg.Wait()
 	log.Println("run", o.Name, "exit")
 }
