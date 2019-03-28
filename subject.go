@@ -65,6 +65,9 @@ func (s *Subject) Subscribe(obs *Observer) {
 }
 
 func (s *Subject) Unsubscribe(id string) {
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
+
 	i := func() int {
 		for i, item := range s.observers {
 			tpID := item.ID()
