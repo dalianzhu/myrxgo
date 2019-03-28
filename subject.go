@@ -1,8 +1,6 @@
 package myrxgo
 
 import (
-	"log"
-	"runtime"
 	"sync"
 )
 
@@ -22,38 +20,20 @@ func (s *Subject) OnNext(i interface{}) {
 	defer s.Mutex.Unlock()
 
 	for _, obs := range s.observers {
-		go func(obs *Observer, i interface{}) {
-			defer func() {
-				if err := recover(); err != nil {
-					stack := make([]byte, 1024*8)
-					stack = stack[:runtime.Stack(stack, false)]
-
-					f := "PANIC: %s\n%s"
-					log.Printf(f, err, stack)
-				}
-			}()
-			obs.OnNext(i)
-		}(obs, i)
+		safeGo(func(i ...interface{}) {
+			i[0].(*Observer).OnNext(i[1])
+		}, obs, i)
 	}
 }
 
-func (s *Subject) OnErr(i error) {
+func (s *Subject) OnErr(err error) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
 
 	for _, obs := range s.observers {
-		go func(obs *Observer, i error) {
-			defer func() {
-				if err := recover(); err != nil {
-					stack := make([]byte, 1024*8)
-					stack = stack[:runtime.Stack(stack, false)]
-
-					f := "PANIC: %s\n%s"
-					log.Printf(f, err, stack)
-				}
-			}()
-			obs.OnErr(i)
-		}(obs, i)
+		safeGo(func(i ...interface{}) {
+			i[0].(*Observer).OnErr(i[1].(error))
+		}, obs, err)
 	}
 }
 

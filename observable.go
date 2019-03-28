@@ -180,7 +180,9 @@ func (o *Observable) Subscribe(obs IObserver) chan int {
 func (o *Observable) Run(fn func(i interface{})) {
 	log.Println("run", o.Name, "start")
 	for item := range o.C {
-		fn(item)
+		safeRun(func() {
+			fn(item)
+		})
 	}
 	log.Println("run", o.Name, "exit")
 }

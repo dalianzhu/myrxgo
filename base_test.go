@@ -127,7 +127,7 @@ func TestSafeRun(t *testing.T) {
 			panic("haha")
 			log.Println(i)
 		})
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 1)
 }
 
 func TestFlatMap(t *testing.T) {
