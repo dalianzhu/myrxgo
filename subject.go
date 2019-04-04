@@ -20,9 +20,9 @@ func (s *Subject) OnNext(i interface{}) {
 	defer s.Mutex.Unlock()
 
 	for _, obs := range s.observers {
-		safeGo(func(i ...interface{}) {
-			i[0].(*Observer).OnNext(i[1])
-		}, obs, i)
+		safeRun(func() {
+			obs.OnNext(i)
+		})
 	}
 }
 
@@ -58,10 +58,17 @@ func (s *Subject) Unsubscribe(id string) {
 		return -1
 	}()
 
+	if i == -1{
+		return
+	}
+
 	s.observers = append(s.observers[:i], s.observers[i+1:]...)
 }
 
 func (s Subject) List() []string {
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
+
 	var ret []string
 	for _, item := range s.observers {
 		ret = append(ret, item.ID())
