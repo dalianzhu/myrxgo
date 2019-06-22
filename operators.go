@@ -1,14 +1,13 @@
 package myrxgo
 
 import (
-	"log"
 	"sync"
 )
 
 func (o *Observable) Map(fc func(interface{}) interface{}) *Observable {
 	outOb := newObservable()
 	outOb.Name = o.Name + "-Map"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 
 	safeGo(func(i ...interface{}) {
 		futures := make(chan *Future, 1000)
@@ -16,8 +15,14 @@ func (o *Observable) Map(fc func(interface{}) interface{}) *Observable {
 			for item := range o.C {
 				future := NewFuture()
 				safeGo(func(i ...interface{}) {
-					ret := fc(i[0])
-					future.SetResult(ret)
+					switch v := i[0].(type) {
+					case error:
+						future.SetResult(v)
+					default:
+						ret := fc(v)
+						future.SetResult(ret)
+					}
+
 				}, item)
 				futures <- future
 			}
@@ -36,13 +41,13 @@ func (o *Observable) Map(fc func(interface{}) interface{}) *Observable {
 func (o *Observable) FlatMap(fn func(interface{}) *Observable) *Observable {
 	outOb := newObservable()
 	outOb.Name = o.Name + "-FlatMap"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 
 	safeGo(func(i ...interface{}) {
 		var wg sync.WaitGroup
 		for item := range o.C {
+			wg.Add(1)
 			safeGo(func(i ...interface{}) {
-				wg.Add(1)
 				defer wg.Done()
 				applyOb := fn(i[0])
 				applyOb.Run(
@@ -63,16 +68,21 @@ func (o *Observable) FlatMap(fn func(interface{}) *Observable) *Observable {
 func (o *Observable) Distinct() *Observable {
 	outOb := newObservable()
 	outOb.Name = o.Name + "-Distinct"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 
 	set := make(map[interface{}]struct{})
 	safeGo(func(i ...interface{}) {
 		for item := range o.C {
-			_, ok := set[item]
-			if !ok {
-				outOb.C <- item
-				outOb.OnStepFinish(item)
-				set[item] = struct{}{}
+			switch v := item.(type) {
+			case error:
+				outOb.C <- v
+			default:
+				_, ok := set[v]
+				if !ok {
+					outOb.C <- v
+					outOb.OnStepFinish(v)
+					set[v] = struct{}{}
+				}
 			}
 		}
 		outOb.close()
@@ -84,18 +94,25 @@ func (o *Observable) Distinct() *Observable {
 func (o *Observable) Filter(fc func(interface{}) bool) *Observable {
 	outOb := newObservable()
 	outOb.Name = o.Name + "-Filter"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 	futures := make(chan *Future, 1000)
 	safeGo(func(i ...interface{}) {
 		safeGo(func(i ...interface{}) {
 			for item := range o.C {
 				future := NewFuture()
 				safeGo(func(i ...interface{}) {
-					ok := fc(i[0])
-					v := i[0]
-					future.SetResult([]interface{}{
-						ok, v,
-					})
+					switch v := i[0].(type) {
+					case error:
+						future.SetResult([]interface{}{
+							true, v,
+						})
+					default:
+						ok := fc(v)
+						future.SetResult([]interface{}{
+							ok, v,
+						})
+					}
+
 				}, item)
 				futures <- future
 			}
@@ -117,13 +134,18 @@ func (o *Observable) Filter(fc func(interface{}) bool) *Observable {
 func (o *Observable) AsList() *Observable {
 	outOb := newObservable()
 	outOb.Name = o.Name + "-AsList"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 
 	go func() {
 		ret := make([]interface{}, 0, 5)
 		for item := range o.C {
-			ret = append(ret, item)
+			switch item.(type) {
+			case error:
+			default:
+				ret = append(ret, item)
+			}
 		}
+
 		outOb.C <- ret
 		outOb.OnStepFinish(ret)
 		outOb.close()

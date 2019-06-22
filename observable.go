@@ -33,7 +33,7 @@ func newObservable() *Observable {
 
 func (o *Observable) close() {
 	safeGo(func(i ...interface{}) {
-		log.Printf("ob %v close", o.Name)
+		Debugf("ob %v close", o.Name)
 		o.Cancel()
 		time.Sleep(time.Microsecond * 10)
 		close(o.C)
@@ -44,7 +44,7 @@ func (o *Observable) close() {
 func From(arr interface{}) *Observable {
 	outOb := newObservable()
 	outOb.Name = UUID()[:8]
-	log.Printf("ob %v run, From", outOb.Name)
+	Debugf("ob %v run, From", outOb.Name)
 	safeGo(func(i ...interface{}) {
 		val := reflect.ValueOf(arr)
 		if val.Kind() == reflect.Slice {
@@ -62,7 +62,7 @@ func From(arr interface{}) *Observable {
 func FromChan(c chan interface{}) *Observable {
 	outOb := newObservable()
 	outOb.Name = UUID()[:8]
-	log.Printf("ob %v run, FromChan", outOb.Name)
+	Debugf("ob %v run, FromChan", outOb.Name)
 	safeGo(func(i ...interface{}) {
 		for item := range c {
 			outOb.C <- item
@@ -77,7 +77,7 @@ func (o *Observable) Merge(inputObservable *Observable,
 	fc func(interface{}, interface{}) interface{}) *Observable {
 	outOb := newObservable()
 	outOb.Name = o.Name + "-Merge"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 
 	safeGo(func(i ...interface{}) {
 		for item := range o.C {
@@ -121,25 +121,25 @@ func FromStream(source *Observable) *Observable {
 func (o *Observable) ClonePtr(ob *Observable) *Observable {
 	refOb := newObservable()
 	refOb.Name = o.Name + "-refClonePtr"
-	log.Printf("ob %v run", refOb.Name)
+	Debugf("ob %v run", refOb.Name)
 
 	*ob = *refOb
 
 	outOb := newObservable()
 	outOb.Name = o.Name + "-ClonePtr"
-	log.Printf("ob %v run", outOb.Name)
+	Debugf("ob %v run", outOb.Name)
 
 	safeGo(func(i ...interface{}) {
 		for item := range o.C {
 			// 对支线发数据
-			//log.Printf("ClonePtr %v enqueue %v", refOb.Name, item)
+			//Debugf("ClonePtr %v enqueue %v", refOb.Name, item)
 			select {
 			case <-refOb.WaitClose.Done():
-				log.Printf("%v WaitClose %v %v", refOb.Name, item,
+				Debugf("%v WaitClose %v %v", refOb.Name, item,
 					refOb.WaitClose.Err())
 			case refOb.C <- item:
 				refOb.OnStepFinish(item)
-				//log.Printf("%v send %v", refOb.Name, x)
+				//Debugf("%v send %v", refOb.Name, x)
 			}
 
 			// 对主线发数据
@@ -158,7 +158,7 @@ func (o *Observable) ClonePtr(ob *Observable) *Observable {
 }
 
 func (o *Observable) Subscribe(obs IObserver) chan int {
-	log.Println("run", o.Name, "start")
+	Debugf("run %v %v", o.Name, "start")
 	fin := make(chan int, 1)
 	go func() {
 		for item := range o.C {
@@ -171,18 +171,27 @@ func (o *Observable) Subscribe(obs IObserver) chan int {
 				}
 			})
 		}
-		log.Println("run", o.Name, "exit")
+		Debugf("run %v %v", o.Name, "exit")
 		fin <- 1
 	}()
 	return fin
 }
 
 func (o *Observable) Run(fn func(i interface{})) {
-	log.Println("run", o.Name, "start")
+	Debugf("run %v %v", o.Name, "start")
+	obs := NewObserver(fn)
+	obs.ErrHandler = func(e error) {
+		log.Println("Run ", e)
+	}
 	for item := range o.C {
 		safeRun(func() {
-			fn(item)
+			switch v := item.(type) {
+			case error:
+				obs.OnErr(v)
+			default:
+				obs.OnNext(v)
+			}
 		})
 	}
-	log.Println("run", o.Name, "exit")
+	Debugf("run %v %v", o.Name, "exit")
 }

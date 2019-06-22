@@ -17,13 +17,12 @@ func NewSubject() *Subject {
 
 func (s *Subject) OnNext(i interface{}) {
 	s.Mutex.Lock()
-	defer s.Mutex.Unlock()
-
 	for _, obs := range s.observers {
 		safeRun(func() {
 			obs.OnNext(i)
 		})
 	}
+	s.Mutex.Unlock()
 }
 
 func (s *Subject) OnErr(err error) {
@@ -65,13 +64,13 @@ func (s *Subject) Unsubscribe(id string) {
 	s.observers = append(s.observers[:i], s.observers[i+1:]...)
 }
 
-func (s Subject) List() []string {
-	s.Mutex.Lock()
-	defer s.Mutex.Unlock()
-
+func (s *Subject) List() []string {
 	var ret []string
+
+	s.Mutex.Lock()
 	for _, item := range s.observers {
 		ret = append(ret, item.ID())
 	}
+	s.Mutex.Unlock()
 	return ret
 }

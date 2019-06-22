@@ -8,10 +8,25 @@ import (
 	"sync"
 )
 
+var IsDebug = true
+
+func Debugf(fmt string, i ...interface{}) {
+	if IsDebug {
+		log.Printf(fmt, i...)
+	}
+}
+
+func Errorf(fmt string, i ...interface{}) {
+	log.Printf(fmt, i...)
+}
+
 func safeRun(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("Recovered in f", r)
+			stack := make([]byte, 1024*8)
+			stack = stack[:runtime.Stack(stack, false)]
+
+			Errorf("PANIC: %s\n%s", r, stack)
 		}
 	}()
 	fn()
@@ -24,8 +39,7 @@ func safeGo(fn func(...interface{}), args ...interface{}) {
 				stack := make([]byte, 1024*8)
 				stack = stack[:runtime.Stack(stack, false)]
 
-				f := "PANIC: %s\n%s"
-				log.Printf(f, err, stack)
+				Errorf("PANIC: %s\n%s", err, stack)
 			}
 		}()
 

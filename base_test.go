@@ -1,6 +1,7 @@
 package myrxgo
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -35,6 +36,34 @@ func TestMap(t *testing.T) {
 	retlist := ret.([]interface{})
 	Equal(t, retlist[0], "hellohaha")
 	Equal(t, retlist[1], "worldhaha")
+
+	findErr := false
+	obs := NewObserver(func(i interface{}) {
+		log.Println("map result", i)
+	})
+	obs.ErrHandler = func(e error) {
+		findErr = true
+		log.Println(e)
+	}
+
+	<-From(arr).Map(func(i interface{}) interface{} {
+		if i.(string) == "hello" {
+			return errors.New("hello error")
+		}
+		return i
+	}).Filter(func(i interface{}) bool {
+		if len(i.(string)) > 3 {
+			return true
+		}
+		return false
+	}).Map(func(i interface{}) interface{} {
+		log.Println(i.(string))
+		return i
+	}).Subscribe(obs)
+
+	if findErr == false {
+		t.Fail()
+	}
 }
 
 func TestFromChan(t *testing.T) {
