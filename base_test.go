@@ -365,3 +365,22 @@ func TestNewAsyncObserver(t *testing.T) {
 		t.Fatal("costs time too much")
 	}
 }
+
+func TestAsyncMap(t *testing.T) {
+	// map中的操作是并行的
+	var arr = []int{1, 2, 3, 4, 5}
+
+	start := time.Now()
+	From(arr).Map(func(i interface{}) interface{} {
+		time.Sleep(time.Second)
+		return i
+	}).Run(func(i interface{}) {
+		log.Printf("TestAsyncMap %v", i)
+	})
+
+	end := time.Since(start)
+
+	if end > time.Second*2 {
+		t.Fail()
+	}
+}
