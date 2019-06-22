@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,6 +16,15 @@ func Equal(t *testing.T, i1, i2 interface{}) {
 		t.Fatalf("%v != %v", i1, i2)
 	}
 	log.Printf("i1 == i2 == %v", i1)
+}
+
+func IsIn(ret []string, find string) bool {
+	for _, item := range ret {
+		if item == find {
+			return true
+		}
+	}
+	return false
 }
 
 //go test -v myrxgo -test.run Testxxx
@@ -32,7 +42,7 @@ func TestMap(t *testing.T) {
 		Map(func(i interface{}) interface{} {
 			return i.(string) + "haha"
 		}).
-		AsList().C
+		AsList().GetChan()
 	retlist := ret.([]interface{})
 	Equal(t, retlist[0], "hellohaha")
 	Equal(t, retlist[1], "worldhaha")
@@ -68,7 +78,7 @@ func TestMap(t *testing.T) {
 
 func TestFromChan(t *testing.T) {
 	c := make(chan interface{})
-	ob3 := FromChan(c).Map(
+	ob3 := From(c).Map(
 		func(i interface{}) interface{} {
 			return i.(int) * 2
 		},
@@ -86,38 +96,11 @@ func TestFromChan(t *testing.T) {
 		}
 		close(c)
 	}()
-	ret := <-ob3.AsList().C
+	ret := <-ob3.AsList().GetChan()
 	retlist := ret.([]interface{})
 	log.Println(retlist)
 	Equal(t, retlist[0], 2)
 	Equal(t, retlist[1], 4)
-}
-
-func TestClone(t *testing.T) {
-	arr := []string{
-		"hello1",
-		"hello2",
-	}
-
-	var obForked Observable
-	ob := From(arr).ClonePtr(&obForked)
-
-	var ret1 interface{}
-	var ret2 interface{}
-	go func() {
-		ret1 = <-ob.AsList().C
-		log.Println(ret1)
-	}()
-	go func() {
-		ret2 = <-obForked.AsList().C
-	}()
-	time.Sleep(time.Second * 4)
-	log.Println(ret1, ret2)
-	ret1list := ret1.([]interface{})
-	ret2list := ret2.([]interface{})
-	log.Println(ret1list, ret2list)
-	Equal(t, ret2list[0], ret1list[0])
-	Equal(t, ret2list[1], ret1list[1])
 }
 
 func TestAsList(t *testing.T) {
@@ -133,7 +116,7 @@ func TestAsList(t *testing.T) {
 			func(i interface{}) interface{} {
 				return i.(string) + "_hi"
 			},
-		).AsList().C
+		).AsList().GetChan()
 	log.Println(l)
 	Equal(t, l.([]interface{})[1], "my_hi")
 }
@@ -166,21 +149,26 @@ func TestFlatMap(t *testing.T) {
 		"haha can",
 	}
 
-	ret := <-From(arr).
-		FlatMap(func(i interface{}) *Observable {
+	ret := make([]string, 0)
+
+	From(arr).
+		FlatMap(func(i interface{}) IObservable {
 			ob := From(strings.Split(i.(string), " "))
 			return ob
-		}).AsList().C
-	retlist := ret.([]interface{})
-	log.Println(retlist)
-	func() {
-		for _, item := range retlist {
-			if item == "idea" {
-				return
-			}
-		}
-		t.Fatal("TestFlatMap cant find 'idea'")
-	}()
+		}).Run(func(i interface{}) {
+		ret = append(ret, i.(string))
+	})
+
+	log.Printf("TestFlatMap ret %v", ret)
+	Equal(t, len(ret), 6)
+
+	Equal(t, true, IsIn(ret, "hello"))
+	Equal(t, true, IsIn(ret, "world"))
+	Equal(t, true, IsIn(ret, "my"))
+	Equal(t, true, IsIn(ret, "idea"))
+	Equal(t, true, IsIn(ret, "haha"))
+	Equal(t, true, IsIn(ret, "can"))
+
 }
 
 func TestSubscribe(t *testing.T) {
@@ -191,19 +179,19 @@ func TestSubscribe(t *testing.T) {
 		"be",
 	}
 
+	ret1 := make([]string, 0)
+	ret2 := make([]string, 0)
+
 	obs1 := NewObserver(func(i interface{}) {
+		ret1 = append(ret1, i.(string))
 		fmt.Println("obs1 ", i)
 	})
 
 	obs2 := NewObserver(func(i interface{}) {
+		ret2 = append(ret2, i.(string))
 		fmt.Println("obs2 ", i)
 	})
 
-	obs3 := NewObserver(func(i interface{}) {
-		fmt.Println("obs3 ", i)
-	})
-
-	var ob2 Observable
 	subject := NewSubject()
 	subject.Subscribe(obs1)
 	subject.Subscribe(obs2)
@@ -211,16 +199,20 @@ func TestSubscribe(t *testing.T) {
 	go From(arr).
 		Filter(func(i interface{}) bool {
 			return len(i.(string)) > 3
-		}).
-		Map(func(i interface{}) interface{} {
-			return i.(string) + "haha"
-		}).ClonePtr(&ob2).Subscribe(subject)
+		}).Subscribe(subject)
 
-	go ob2.Map(func(i interface{}) interface{} {
-		return i.(string) + " map2"
-	}).Subscribe(obs3)
+	time.Sleep(time.Second * 1)
+	log.Printf("TestSubscribe ret1 %v", ret1)
+	log.Printf("TestSubscribe ret2 %v", ret2)
 
-	time.Sleep(time.Second * 3)
+	Equal(t, len(ret1), 2)
+	Equal(t, len(ret2), 2)
+
+	Equal(t, true, IsIn(ret1, "hello"))
+	Equal(t, true, IsIn(ret2, "hello"))
+	Equal(t, true, IsIn(ret1, "world"))
+	Equal(t, true, IsIn(ret2, "world"))
+
 }
 
 func TestDistinct(t *testing.T) {
@@ -231,7 +223,7 @@ func TestDistinct(t *testing.T) {
 		"world",
 		"be",
 	}
-	ret := <-From(arr).Distinct().AsList().C
+	ret := <-From(arr).Distinct().AsList().GetChan()
 	retlist := ret.([]interface{})
 	log.Println(retlist)
 	Equal(t, retlist[2], "world")
@@ -242,29 +234,52 @@ func TestFromStream(t *testing.T) {
 		"hello",
 		"world",
 	}
-	var ret []string
+	var ret1 []string
+	var ret2 []string
 
 	mainStream := From(arr).
 		Map(func(i interface{}) interface{} {
-			return i.(string) + "haha"
+			return i.(string) + ":"
 		})
 
-	subStream := FromStream(mainStream).
+	subStream1 := FromStream(mainStream).
 		Map(func(i interface{}) interface{} {
-			return i.(string) + "sub"
+			return i.(string) + ":sub1"
+		})
+
+	subStream2 := FromStream(mainStream).
+		Map(func(i interface{}) interface{} {
+			return i.(string) + ":sub2"
 		})
 
 	go mainStream.Run(func(i interface{}) {
 		fmt.Println("main ", i)
 	})
 
-	go subStream.Run(func(i interface{}) {
-		fmt.Println("sub ", i)
-		ret = append(ret, i.(string))
-	})
+	var wait sync.WaitGroup
 
-	time.Sleep(time.Second)
-	Equal(t, len(ret), 2)
+	wait.Add(1)
+	go func() {
+		subStream1.Run(func(i interface{}) {
+			fmt.Println("sub1", i)
+			ret1 = append(ret1, i.(string))
+		})
+		wait.Done()
+	}()
+
+	wait.Add(1)
+	go func() {
+		subStream2.Run(func(i interface{}) {
+			fmt.Println("sub2", i)
+			ret2 = append(ret2, i.(string))
+		})
+		wait.Done()
+	}()
+
+	wait.Wait()
+
+	Equal(t, len(ret1), 2)
+	Equal(t, len(ret2), 2)
 }
 
 func TestSubject(t *testing.T) {

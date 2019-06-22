@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"runtime"
-	"sync"
 )
 
 var IsDebug = true
@@ -17,7 +16,7 @@ func Debugf(fmt string, i ...interface{}) {
 }
 
 func Errorf(fmt string, i ...interface{}) {
-	log.Printf(fmt, i...)
+	log.Printf("ERROR "+fmt, i...)
 }
 
 func safeRun(fn func()) {
@@ -55,33 +54,4 @@ func UUID() string {
 	}
 
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
-}
-
-type Queue struct {
-	queue []interface{}
-	lk    sync.Mutex
-}
-
-func NewQueue() *Queue {
-	q := new(Queue)
-	q.queue = make([]interface{}, 10)
-	return q
-}
-
-func (q *Queue) Append(item interface{}) {
-	q.lk.Lock()
-	q.queue = append(q.queue, item)
-	q.lk.Unlock()
-}
-
-func (q *Queue) Pop() interface{} {
-	q.lk.Lock()
-	if len(q.queue) <= 0 {
-		q.lk.Unlock()
-		return nil
-	}
-	x := q.queue[0]
-	q.queue = q.queue[1:]
-	q.lk.Unlock()
-	return x
 }
