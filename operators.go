@@ -4,13 +4,22 @@ import (
 	"sync"
 )
 
+/*
+所有的error都被直接传递，不引发任何操作，setNext函数将做出操作
+*/
+
+func isError(i interface{}) bool {
+	_, ok := i.(error)
+	return ok
+}
+
 func (o *Observable) Map(fc func(interface{}) interface{}) IObservable {
 	outOb := newObservable()
 	outOb.SetName(o.name + "-Map")
 	Debugf("ob %v run", outOb.GetName())
 
 	safeGo(func(i ...interface{}) {
-		for item := range o.c {
+		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				future := NewFuture()
 				safeGo(func(i ...interface{}) {
@@ -25,6 +34,34 @@ func (o *Observable) Map(fc func(interface{}) interface{}) IObservable {
 	return outOb
 }
 
+func (o *Observable) FlatMapPara(fn func(interface{}) IObservable) IObservable {
+	outOb := newObservable()
+	outOb.SetName(o.name + "-FlatMapPara")
+	Debugf("ob %v run", outOb.GetName())
+	safeGo(func(i ...interface{}) {
+		for item := range o.outputC {
+			//Debugf("flatMapPara item:%v", item)
+			if isError(item) {
+				outOb.SetNext(item, func(i interface{}) interface{} {
+					return i
+				})
+				continue
+			}
+
+			applyOb := fn(item)
+			applyOb.Run(
+				func(i interface{}) {
+					outOb.SetNext(i, func(i interface{}) interface{} {
+						return i
+					})
+				},
+			)
+		}
+		outOb.Close()
+	})
+	return outOb
+}
+
 func (o *Observable) FlatMap(fn func(interface{}) IObservable) IObservable {
 	outOb := newObservable()
 	outOb.SetName(o.name + "-FlatMap")
@@ -32,10 +69,17 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable) IObservable {
 
 	safeGo(func(i ...interface{}) {
 		var wg sync.WaitGroup
-		for item := range o.c {
+		for item := range o.outputC {
 			wg.Add(1)
 			safeGo(func(i ...interface{}) {
 				defer wg.Done()
+				if isError(i[0]) {
+					outOb.SetNext(i[0], func(i interface{}) interface{} {
+						return i
+					})
+					return
+				}
+
 				applyOb := fn(i[0])
 				applyOb.Run(
 					func(i interface{}) {
@@ -45,7 +89,6 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable) IObservable {
 					},
 				)
 			}, item)
-
 		}
 		wg.Wait()
 		outOb.Close()
@@ -60,7 +103,7 @@ func (o *Observable) Distinct() IObservable {
 
 	set := make(map[interface{}]struct{})
 	safeGo(func(i ...interface{}) {
-		for item := range o.c {
+		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				_, ok := set[item]
 				if !ok {
@@ -81,7 +124,7 @@ func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
 	outOb.SetName(o.name + "-Filter")
 	Debugf("ob %v run", outOb.GetName())
 	safeGo(func(i ...interface{}) {
-		for item := range o.c {
+		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				future := NewFuture()
 				safeGo(func(i ...interface{}) {
@@ -110,7 +153,7 @@ func (o *Observable) AsList() IObservable {
 
 	go func() {
 		ret := make([]interface{}, 0, 5)
-		for item := range o.c {
+		for item := range o.outputC {
 			switch item.(type) {
 			case error:
 			default:

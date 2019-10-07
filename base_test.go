@@ -384,3 +384,31 @@ func TestAsyncMap(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestDone(t *testing.T) {
+	var source = []interface{}{
+		"1 2", "3 4", errors.New("hello"), "5 6",
+	}
+	var ret []string
+	f := From(source).Map(func(i interface{}) interface{} {
+		item := i.(string)
+		item += " 9"
+		fmt.Println("call map", item)
+		return item
+	}).FlatMapPara(func(i interface{}) IObservable {
+		item := i.(string)
+		fmt.Println("item", i)
+		return From(strings.Split(item, " "))
+	}).Subscribe(NewObserverWithErrDone(func(i interface{}) {
+		fmt.Println("TestDone", i)
+		item := i.(string)
+		ret = append(ret, item)
+	}, func(e error) { fmt.Println("find onError", e) },
+		func() {}))
+	<-f
+	Equal(t, 6, len(ret))
+	Equal(t, true, IsIn(ret, "1"))
+	Equal(t, true, IsIn(ret, "2"))
+	Equal(t, true, IsIn(ret, "3"))
+	Equal(t, false, IsIn(ret, "5"))
+}

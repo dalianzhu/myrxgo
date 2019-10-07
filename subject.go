@@ -36,6 +36,16 @@ func (s *Subject) OnErr(err error) {
 	}
 }
 
+func (s *Subject) OnDone() {
+	s.Mutex.Lock()
+	for _, obs := range s.observers {
+		safeRun(func() {
+			obs.OnDone()
+		})
+	}
+	s.Mutex.Unlock()
+}
+
 func (s *Subject) Subscribe(obs *Observer) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
@@ -57,7 +67,7 @@ func (s *Subject) Unsubscribe(id string) {
 		return -1
 	}()
 
-	if i == -1{
+	if i == -1 {
 		return
 	}
 

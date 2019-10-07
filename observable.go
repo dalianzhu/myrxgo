@@ -29,6 +29,7 @@ type IObservable interface {
 
 	Map(fc func(interface{}) interface{}) IObservable
 	FlatMap(fn func(interface{}) IObservable) IObservable
+	FlatMapPara(fn func(interface{}) IObservable) IObservable
 	Distinct() IObservable
 	Filter(fc func(interface{}) bool) IObservable
 	AsList() IObservable
@@ -42,12 +43,13 @@ type IObservable interface {
 }
 
 type Observable struct {
-	c                 chan interface{}
+	outputC chan interface{}
+	inputC  chan interface{}
+
 	closeHandler      func()
 	name              string
 	stepFinishHandler func(interface{})
 	lock              sync.Mutex
-	buffer            chan interface{}
 }
 
 func (o *Observable) GetName() string {
@@ -58,7 +60,7 @@ func (o *Observable) Close() {
 	safeGo(func(i ...interface{}) {
 		Debugf("ob %v Close", o.name)
 		time.Sleep(time.Microsecond * 10)
-		close(o.buffer)
+		close(o.inputC)
 		o.closeHandler()
 	})
 }
@@ -80,6 +82,7 @@ func (o *Observable) GetCloseHandler() func() {
 }
 
 func (o *Observable) OnStepFinish(i interface{}) {
+	//Debugf("OnStepFinish %v", i)
 	o.stepFinishHandler(i)
 }
 
@@ -98,6 +101,7 @@ func (o *Observable) GetStepFinishHandler() func(interface{}) {
 func (o *Observable) SetNext(i interface{}, f func(interface{}) interface{}) {
 	var nextData interface{}
 
+	//Debugf("setNext:%v", i)
 	switch i.(type) {
 	case error:
 		nextData = i
@@ -109,25 +113,23 @@ func (o *Observable) SetNext(i interface{}, f func(interface{}) interface{}) {
 	case *Drop, Drop:
 		Debugf("SetNext find drop")
 		return
-	case *Future:
-		o.buffer <- nextData
 	default:
-		o.c <- nextData
-		o.OnStepFinish(nextData)
+		o.inputC <- nextData
+		//o.OnStepFinish(nextData)
 	}
 }
 
 func newObservable() IObservable {
 	o := new(Observable)
-	o.c = make(chan interface{})
+	o.outputC = make(chan interface{})
+	o.inputC = make(chan interface{}, 10)
 	o.SetCloseHandler(func() {})
 	o.stepFinishHandler = func(i interface{}) {
 	}
-	o.buffer = make(chan interface{}, 10)
 
 	go func() {
-		for item := range o.buffer {
-			Debugf("buffer %v %v", item, reflect.TypeOf(item))
+		for item := range o.inputC {
+			//Debugf("inputC %v %v", item, reflect.TypeOf(item))
 			var nextData interface{}
 
 			switch v := item.(type) {
@@ -141,18 +143,19 @@ func newObservable() IObservable {
 			case Drop, *Drop:
 			case types.Nil:
 			default:
-				o.c <- nextData
+				//Debugf("setoutput %v", nextData)
+				o.outputC <- nextData
 				o.OnStepFinish(nextData)
 			}
 		}
-		close(o.c)
+		close(o.outputC)
 	}()
 
 	return o
 }
 
 func (o *Observable) GetChan() chan interface{} {
-	return o.c
+	return o.outputC
 }
 
 func (o *Observable) SetName(name string) {
@@ -217,7 +220,7 @@ func (o *Observable) Merge(inputObservable IObservable,
 	Debugf("ob %v run", outOb.GetName())
 
 	safeGo(func(i ...interface{}) {
-		for item := range o.c {
+		for item := range o.outputC {
 			ifItem, ok := <-inputObservable.GetChan()
 			if !ok {
 				break
@@ -237,10 +240,12 @@ func FromStream(source IObservable) IObservable {
 	inOutOb := make(chan interface{})
 	outOb := FromChan(inOutOb)
 	outOb.SetName(source.GetName() + "-FromStream")
+	Debugf("ob %v run, FromStream", outOb.GetName())
 
 	sourceOnStepFinish := source.GetStepFinishHandler()
 	source.SetStepFinishHandler(func(i interface{}) {
 		sourceOnStepFinish(i)
+		Debugf("set inOutOb: %v, source:%v", i, source)
 		inOutOb <- i
 	})
 
@@ -255,17 +260,27 @@ func FromStream(source IObservable) IObservable {
 func (o *Observable) Subscribe(obs IObserver) chan int {
 	Debugf("run %v %v", o.name, "start")
 	fin := make(chan int, 1)
+	findErr := false
 	go func() {
-		for item := range o.c {
+		for item := range o.outputC {
+			if findErr {
+				continue
+			}
 			safeRun(func() {
 				switch v := item.(type) {
 				case error:
 					obs.OnErr(v)
+					findErr = true
 				default:
 					obs.OnNext(v)
 				}
 			})
 		}
+
+		if !findErr {
+			obs.OnDone()
+		}
+
 		Debugf("run %v %v", o.name, "exit")
 		fin <- 1
 	}()
@@ -278,15 +293,25 @@ func (o *Observable) Run(fn func(i interface{})) {
 	obs.ErrHandler = func(e error) {
 		Debugf("Run error %v", e)
 	}
-	for item := range o.c {
+	findErr := false
+	for item := range o.outputC {
+		if findErr {
+			continue
+		}
 		safeRun(func() {
 			switch v := item.(type) {
 			case error:
 				obs.OnErr(v)
+				findErr = true
 			default:
 				obs.OnNext(v)
 			}
 		})
 	}
+
+	if !findErr {
+		obs.OnDone()
+	}
+
 	Debugf("run %v %v", o.name, "exit")
 }
