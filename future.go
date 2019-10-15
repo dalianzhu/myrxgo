@@ -45,7 +45,7 @@ func (f *Future) GetResult() interface{} {
 
 	select {
 	// timeout
-	case <-time.After(time.Second * 3):
+	case <-time.After(time.Second * 60):
 		f.isfinished = true
 		f.result = nil
 		return nil
