@@ -49,13 +49,18 @@ func (o *Observable) FlatMapPara(fn func(interface{}) IObservable) IObservable {
 			}
 
 			applyOb := fn(item)
-			applyOb.Run(
+			<-applyOb.Subscribe(NewObserverWithErrDone(
 				func(i interface{}) {
 					outOb.SetNext(i, func(i interface{}) interface{} {
 						return i
 					})
 				},
-			)
+				func(e error) {
+					outOb.SetNext(item, func(i interface{}) interface{} {
+						return i
+					})
+				},
+				func() {}))
 		}
 		outOb.Close()
 	})
@@ -81,13 +86,18 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable) IObservable {
 				}
 
 				applyOb := fn(i[0])
-				applyOb.Run(
+				<-applyOb.Subscribe(NewObserverWithErrDone(
 					func(i interface{}) {
 						outOb.SetNext(i, func(i interface{}) interface{} {
 							return i
 						})
 					},
-				)
+					func(e error) {
+						outOb.SetNext(item, func(i interface{}) interface{} {
+							return i
+						})
+					},
+					func() {}))
 			}, item)
 		}
 		wg.Wait()
