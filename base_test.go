@@ -40,6 +40,7 @@ func TestMap(t *testing.T) {
 			return len(i.(string)) > 3
 		}).
 		Map(func(i interface{}) interface{} {
+			fmt.Printf("TestMap %s\n", i)
 			return i.(string) + "haha"
 		}).
 		AsList().GetChan()
@@ -119,6 +120,15 @@ func TestAsList(t *testing.T) {
 		).AsList().GetChan()
 	log.Println(l)
 	Equal(t, l.([]interface{})[1], "my_hi")
+	findErr := false
+	<-From(arr).Map(func(i interface{}) interface{} {
+		return errors.New("test")
+	}).AsList().Subscribe(NewObserverWithErr(func(i interface{}) {}, func(e error) {
+		fmt.Println("AsList find err", e)
+		findErr = true
+	}))
+	Equal(t, findErr, true)
+
 }
 
 func TestSafeRun(t *testing.T) {
@@ -130,15 +140,15 @@ func TestSafeRun(t *testing.T) {
 		123,
 	}
 
-	From(arr).
+	<-From(arr).
 		Map(func(i interface{}) interface{} {
 			return i.(string) + "_hi"
-		}).
-		AsList().
-		Run(func(i interface{}) {
-			panic("haha")
-			log.Println(i)
-		})
+		}).AsList().Subscribe(NewObserverWithErrDone(func(i interface{}) {
+	}, func(e error) {
+		fmt.Printf("TestSafeRun on_error %s\n", e)
+	}, func() {
+		fmt.Println("TestSafeRun done")
+	}))
 	time.Sleep(time.Second * 1)
 }
 
@@ -395,11 +405,11 @@ func TestDone(t *testing.T) {
 		item += " 9"
 		fmt.Println("call map", item)
 		return item
-	}).FlatMapPara(func(i interface{}) IObservable {
+	}).FlatMap(func(i interface{}) IObservable {
 		item := i.(string)
 		fmt.Println("item", i)
 		return From(strings.Split(item, " "))
-	}).Subscribe(NewObserverWithErrDone(func(i interface{}) {
+	}, SerialConfig).Subscribe(NewObserverWithErrDone(func(i interface{}) {
 		fmt.Println("TestDone", i)
 		item := i.(string)
 		ret = append(ret, item)
@@ -413,18 +423,17 @@ func TestDone(t *testing.T) {
 	Equal(t, false, IsIn(ret, "5"))
 
 	findErr := false
-	<-From("1_2").FlatMapPara(func(i interface{}) IObservable {
+	<-From("1_2").FlatMap(func(i interface{}) IObservable {
 		return From(i).Map(func(i interface{}) interface{} {
-			return errors.New("error")
+			return i.(int)
+			// return errors.New("error")
 		})
-	}).Subscribe(NewObserverWithErrDone(func(i interface{}) {},
+	}, SerialConfig).Subscribe(NewObserverWithErrDone(func(i interface{}) {},
 		func(e error) {
-			fmt.Print("TestDone find err!!!\n")
+			fmt.Println("TestDone find err!!!", e)
 			findErr = true
 		},
-		func() {
-
-		},
+		func() {},
 	))
 	Equal(t, findErr, true)
 }

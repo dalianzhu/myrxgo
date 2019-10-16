@@ -27,9 +27,9 @@ type IObservable interface {
 	SetStepFinishHandler(func(interface{}))
 	GetStepFinishHandler() func(interface{})
 
-	Map(fc func(interface{}) interface{}) IObservable
-	FlatMap(fn func(interface{}) IObservable) IObservable
-	FlatMapPara(fn func(interface{}) IObservable) IObservable
+	Map(fc func(interface{}) interface{}, configs ...interface{}) IObservable
+	FlatMap(fn func(interface{}) IObservable, configs ...interface{}) IObservable
+	// FlatMapSerial(fn func(interface{}) IObservable) IObservable
 	Distinct() IObservable
 	Filter(fc func(interface{}) bool) IObservable
 	AsList() IObservable
@@ -298,15 +298,17 @@ func (o *Observable) Run(fn func(i interface{})) {
 		if findErr {
 			continue
 		}
-		safeRun(func() {
-			switch v := item.(type) {
-			case error:
-				obs.OnErr(v)
-				findErr = true
-			default:
+		switch v := item.(type) {
+		case error:
+			obs.OnErr(v)
+			findErr = true
+		default:
+			Try(func() {
 				obs.OnNext(v)
-			}
-		})
+			}, func(e error) {
+				obs.OnErr(e)
+			})
+		}
 	}
 
 	if !findErr {

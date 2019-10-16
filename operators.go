@@ -13,97 +13,100 @@ func isError(i interface{}) bool {
 	return ok
 }
 
-func (o *Observable) Map(fc func(interface{}) interface{}) IObservable {
+func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{}) IObservable {
 	outOb := newObservable()
 	outOb.SetName(o.name + "-Map")
 	Debugf("ob %v run", outOb.GetName())
 
-	safeGo(func(i ...interface{}) {
+	isSerial := false
+	for _,config:=range configs{
+		switch config.(type){
+		case *serialConfig:
+			isSerial = true
+		}
+	}
+
+	go func() {
 		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				future := NewFuture()
-				safeGo(func(i ...interface{}) {
-					item := i[0]
-					future.SetResult(fc(item))
-				}, i)
+				tpitem := item
+				if isSerial==false{
+				go Try(func() {
+					future.SetResult(fc(tpitem))
+				}, func(e error) {
+					future.SetResult(e)
+				})
+				}else{
+				Try(func() {
+					future.SetResult(fc(tpitem))
+				}, func(e error) {
+					future.SetResult(e)
+				})
+				}
 				return future
 			})
 		}
 		outOb.Close()
-	})
+	}()
 	return outOb
 }
 
-func (o *Observable) FlatMapPara(fn func(interface{}) IObservable) IObservable {
-	outOb := newObservable()
-	outOb.SetName(o.name + "-FlatMapPara")
-	Debugf("ob %v run", outOb.GetName())
-	safeGo(func(i ...interface{}) {
-		for item := range o.outputC {
-			//Debugf("flatMapPara item:%v", item)
-			if isError(item) {
-				outOb.SetNext(item, func(i interface{}) interface{} {
-					return i
-				})
-				continue
-			}
 
-			applyOb := fn(item)
-			<-applyOb.Subscribe(NewObserverWithErrDone(
-				func(i interface{}) {
-					outOb.SetNext(i, func(i interface{}) interface{} {
-						return i
-					})
-				},
-				func(e error) {
-					//Debugf("FlatMapPara find error!")
-					outOb.SetNext(e, func(i interface{}) interface{} {
-						return i
-					})
-				},
-				func() {}))
-		}
-		outOb.Close()
-	})
-	return outOb
-}
-
-func (o *Observable) FlatMap(fn func(interface{}) IObservable) IObservable {
+func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interface{}) IObservable {
 	outOb := newObservable()
 	outOb.SetName(o.name + "-FlatMap")
 	Debugf("ob %v run", outOb.GetName())
 
-	safeGo(func(i ...interface{}) {
+	isSerial := false
+	for _,config:=range configs{
+		switch config.(type){
+		case *serialConfig:
+			isSerial = true
+		}
+	}
+	go func() {
 		var wg sync.WaitGroup
 		for item := range o.outputC {
 			wg.Add(1)
-			safeGo(func(i ...interface{}) {
+			tpitem := item
+			tpFunc:=func() {
 				defer wg.Done()
-				if isError(i[0]) {
-					outOb.SetNext(i[0], func(i interface{}) interface{} {
+				if isError(tpitem) {
+					outOb.SetNext(tpitem, func(i interface{}) interface{} {
 						return i
 					})
 					return
 				}
-
-				applyOb := fn(i[0])
-				<-applyOb.Subscribe(NewObserverWithErrDone(
-					func(i interface{}) {
-						outOb.SetNext(i, func(i interface{}) interface{} {
-							return i
-						})
-					},
-					func(e error) {
-						outOb.SetNext(e, func(i interface{}) interface{} {
-							return i
-						})
-					},
-					func() {}))
-			}, item)
+				Try(func() {
+					applyOb := fn(tpitem)
+					<-applyOb.Subscribe(NewObserverWithErrDone(
+						func(i interface{}) {
+							outOb.SetNext(i, func(i interface{}) interface{} {
+								return i
+							})
+						},
+						func(e error) {
+							outOb.SetNext(e, func(i interface{}) interface{} {
+								return i
+							})
+						},
+						func() {}))
+				}, func(e error) {
+					outOb.SetNext(e, func(i interface{}) interface{} {
+						return i
+					})
+				})
+			}
+			if isSerial{
+				tpFunc()
+			}else{
+				go tpFunc()
+			}
 		}
 		wg.Wait()
 		outOb.Close()
-	})
+	}()
 	return outOb
 }
 
@@ -113,7 +116,7 @@ func (o *Observable) Distinct() IObservable {
 	Debugf("ob %v run", outOb.GetName())
 
 	set := make(map[interface{}]struct{})
-	safeGo(func(i ...interface{}) {
+	go func(i ...interface{}) {
 		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				_, ok := set[item]
@@ -125,34 +128,38 @@ func (o *Observable) Distinct() IObservable {
 			})
 		}
 		outOb.Close()
-	})
+	}()
 
 	return outOb
 }
 
+// Filter return true可以通过
 func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
 	outOb := newObservable()
 	outOb.SetName(o.name + "-Filter")
 	Debugf("ob %v run", outOb.GetName())
-	safeGo(func(i ...interface{}) {
+	go func(i ...interface{}) {
 		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				future := NewFuture()
-				safeGo(func(i ...interface{}) {
-					item := i[0]
-					ok := fc(item)
-					if ok {
-						future.SetResult(item)
-					} else {
-						future.SetResult(new(Drop))
-					}
-				}, i)
+				tpitem := item
+				go func() {
+					Try(func() {
+						ok := fc(tpitem)
+						if ok {
+							future.SetResult(tpitem)
+						} else {
+							future.SetResult(new(Drop))
+						}
+					}, func(e error) {
+						future.SetResult(e)
+					})
+				}()
 				return future
 			})
-
 		}
 		outOb.Close()
-	})
+	}()
 
 	return outOb
 }
@@ -164,17 +171,27 @@ func (o *Observable) AsList() IObservable {
 
 	go func() {
 		ret := make([]interface{}, 0, 5)
+		findErr := false
 		for item := range o.outputC {
-			switch item.(type) {
+			if findErr {
+				continue
+			}
+			switch v := item.(type) {
 			case error:
+				findErr = true
+				outOb.SetNext(v, func(i interface{}) interface{} {
+					return i
+				})
 			default:
 				ret = append(ret, item)
 			}
 		}
 
-		outOb.SetNext(ret, func(i interface{}) interface{} {
-			return i
-		})
+		if findErr == false {
+			outOb.SetNext(ret, func(i interface{}) interface{} {
+				return i
+			})
+		}
 		outOb.Close()
 	}()
 	return outOb

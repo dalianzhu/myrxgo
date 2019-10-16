@@ -19,6 +19,19 @@ func Errorf(fmt string, i ...interface{}) {
 	log.Printf("ERROR "+fmt, i...)
 }
 
+func Try(f func(), except func(e error)) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := make([]byte, 1024*8)
+			stack = stack[:runtime.Stack(stack, false)]
+			err := fmt.Errorf("PANIC: %s\n%s", r, stack)
+			Errorf("PANIC: %s\n%s", r, stack)
+			except(err)
+		}
+	}()
+	f()
+}
+
 func safeRun(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
