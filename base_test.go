@@ -411,4 +411,20 @@ func TestDone(t *testing.T) {
 	Equal(t, true, IsIn(ret, "2"))
 	Equal(t, true, IsIn(ret, "3"))
 	Equal(t, false, IsIn(ret, "5"))
+
+	findErr := false
+	<-From("1_2").FlatMapPara(func(i interface{}) IObservable {
+		return From(i).Map(func(i interface{}) interface{} {
+			return errors.New("error")
+		})
+	}).Subscribe(NewObserverWithErrDone(func(i interface{}) {},
+		func(e error) {
+			fmt.Print("TestDone find err!!!\n")
+			findErr = true
+		},
+		func() {
+
+		},
+	))
+	Equal(t, findErr, true)
 }

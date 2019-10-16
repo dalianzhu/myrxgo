@@ -56,7 +56,8 @@ func (o *Observable) FlatMapPara(fn func(interface{}) IObservable) IObservable {
 					})
 				},
 				func(e error) {
-					outOb.SetNext(item, func(i interface{}) interface{} {
+					//Debugf("FlatMapPara find error!")
+					outOb.SetNext(e, func(i interface{}) interface{} {
 						return i
 					})
 				},
@@ -93,7 +94,7 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable) IObservable {
 						})
 					},
 					func(e error) {
-						outOb.SetNext(item, func(i interface{}) interface{} {
+						outOb.SetNext(e, func(i interface{}) interface{} {
 							return i
 						})
 					},
