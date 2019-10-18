@@ -19,8 +19,8 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 	Debugf("ob %v run", outOb.GetName())
 
 	isSerial := false
-	for _,config:=range configs{
-		switch config.(type){
+	for _, config := range configs {
+		switch config.(type) {
 		case *serialConfig:
 			isSerial = true
 		}
@@ -31,18 +31,18 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				future := NewFuture()
 				tpitem := item
-				if isSerial==false{
-				go Try(func() {
-					future.SetResult(fc(tpitem))
-				}, func(e error) {
-					future.SetResult(e)
-				})
-				}else{
-				Try(func() {
-					future.SetResult(fc(tpitem))
-				}, func(e error) {
-					future.SetResult(e)
-				})
+				if isSerial == false {
+					go Try(func() {
+						future.SetResult(fc(tpitem))
+					}, func(rec interface{}, stack []byte) {
+						future.SetResult(SystemPanicHandler(rec, stack))
+					})
+				} else {
+					Try(func() {
+						future.SetResult(fc(tpitem))
+					}, func(rec interface{}, stack []byte) {
+						future.SetResult(SystemPanicHandler(rec, stack))
+					})
 				}
 				return future
 			})
@@ -52,15 +52,14 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 	return outOb
 }
 
-
 func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interface{}) IObservable {
 	outOb := newObservable()
 	outOb.SetName(o.name + "-FlatMap")
 	Debugf("ob %v run", outOb.GetName())
 
 	isSerial := false
-	for _,config:=range configs{
-		switch config.(type){
+	for _, config := range configs {
+		switch config.(type) {
 		case *serialConfig:
 			isSerial = true
 		}
@@ -70,7 +69,7 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interf
 		for item := range o.outputC {
 			wg.Add(1)
 			tpitem := item
-			tpFunc:=func() {
+			tpFunc := func() {
 				defer wg.Done()
 				if isError(tpitem) {
 					outOb.SetNext(tpitem, func(i interface{}) interface{} {
@@ -92,15 +91,16 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interf
 							})
 						},
 						func() {}))
-				}, func(e error) {
+				}, func(rec interface{}, stack []byte) {
+					e := SystemPanicHandler(rec, stack)
 					outOb.SetNext(e, func(i interface{}) interface{} {
 						return i
 					})
 				})
 			}
-			if isSerial{
+			if isSerial {
 				tpFunc()
-			}else{
+			} else {
 				go tpFunc()
 			}
 		}
@@ -151,8 +151,8 @@ func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
 						} else {
 							future.SetResult(new(Drop))
 						}
-					}, func(e error) {
-						future.SetResult(e)
+					}, func(rec interface{}, stack []byte) {
+						future.SetResult(SystemPanicHandler(rec, stack))
 					})
 				}()
 				return future

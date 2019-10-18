@@ -266,15 +266,17 @@ func (o *Observable) Subscribe(obs IObserver) chan int {
 			if findErr {
 				continue
 			}
-			safeRun(func() {
-				switch v := item.(type) {
-				case error:
-					obs.OnErr(v)
-					findErr = true
-				default:
+			switch v := item.(type) {
+			case error:
+				obs.OnErr(v)
+				findErr = true
+			default:
+				Try(func() {
 					obs.OnNext(v)
-				}
-			})
+				}, func(rec interface{}, stack []byte) {
+					obs.OnErr(SystemPanicHandler(rec, stack))
+				})
+			}
 		}
 
 		if !findErr {
@@ -305,8 +307,8 @@ func (o *Observable) Run(fn func(i interface{})) {
 		default:
 			Try(func() {
 				obs.OnNext(v)
-			}, func(e error) {
-				obs.OnErr(e)
+			}, func(rec interface{}, stack []byte) {
+				obs.OnErr(SystemPanicHandler(rec, stack))
 			})
 		}
 	}
