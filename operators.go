@@ -14,22 +14,40 @@ func isError(i interface{}) bool {
 }
 
 func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{}) IObservable {
-	outOb := newObservable()
+	isSerial := false
+	var con uint = 10
+	var timeout uint = 60 * 5
+	for _, config := range configs {
+		switch v := config.(type) {
+		case *serialConfig:
+			isSerial = true
+		case *concurrentConfig:
+			con = v.value
+		case *timeoutConfig:
+			timeout = v.value
+		}
+	}
+	outOb := newObservable(con, o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Map")
 	Debugf("ob %v run", outOb.GetName())
 
-	isSerial := false
-	for _, config := range configs {
-		switch config.(type) {
-		case *serialConfig:
-			isSerial = true
-		}
-	}
-
 	go func() {
-		for item := range o.outputC {
+	loop:
+		for {
+			var item interface{}
+			var ok bool
+			select {
+			case item, ok = <-o.outputC:
+			case <-o.baseCtx.Done():
+				break loop
+			}
+			if !ok {
+				break
+			}
+
 			outOb.SetNext(item, func(i interface{}) interface{} {
 				future := NewFuture()
+				future.Timeout = timeout
 				tpitem := item
 				if isSerial == false {
 					go Try(func() {
@@ -53,17 +71,20 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 }
 
 func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interface{}) IObservable {
-	outOb := newObservable()
+	isSerial := false
+	var con uint = 10
+	for _, config := range configs {
+		switch v := config.(type) {
+		case *serialConfig:
+			isSerial = true
+		case *concurrentConfig:
+			con = v.value
+		}
+	}
+	outOb := newObservable(con, o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-FlatMap")
 	Debugf("ob %v run", outOb.GetName())
 
-	isSerial := false
-	for _, config := range configs {
-		switch config.(type) {
-		case *serialConfig:
-			isSerial = true
-		}
-	}
 	go func() {
 		var wg sync.WaitGroup
 		for item := range o.outputC {
@@ -111,7 +132,7 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interf
 }
 
 func (o *Observable) Distinct() IObservable {
-	outOb := newObservable()
+	outOb := newObservable(10, o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Distinct")
 	Debugf("ob %v run", outOb.GetName())
 
@@ -135,7 +156,7 @@ func (o *Observable) Distinct() IObservable {
 
 // Filter return true可以通过
 func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
-	outOb := newObservable()
+	outOb := newObservable(10, o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Filter")
 	Debugf("ob %v run", outOb.GetName())
 	go func(i ...interface{}) {
@@ -165,7 +186,7 @@ func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
 }
 
 func (o *Observable) AsList() IObservable {
-	outOb := newObservable()
+	outOb := newObservable(10, o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-AsList")
 	Debugf("ob %v run", outOb.GetName())
 

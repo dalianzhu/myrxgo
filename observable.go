@@ -1,7 +1,8 @@
 package myrxgo
 
 import (
-	"go/types"
+	"context"
+	"errors"
 	"reflect"
 	"sync"
 	"time"
@@ -40,16 +41,23 @@ type IObservable interface {
 	Subscribe(obs IObserver) chan int
 
 	Run(fn func(i interface{}))
+	//GetBaseContext() (context.Context, context.CancelFunc)
 }
 
 type Observable struct {
-	outputC chan interface{}
-	inputC  chan interface{}
+	outputC    chan interface{}
+	inputC     chan interface{}
+	baseCtx    context.Context
+	baseCancel context.CancelFunc
 
 	closeHandler      func()
 	name              string
 	stepFinishHandler func(interface{})
 	lock              sync.Mutex
+}
+
+func (o *Observable) GetBaseContext() (context.Context, context.CancelFunc) {
+	return o.baseCtx, o.baseCancel
 }
 
 func (o *Observable) GetName() string {
@@ -114,40 +122,65 @@ func (o *Observable) SetNext(i interface{}, f func(interface{}) interface{}) {
 		Debugf("SetNext find drop")
 		return
 	default:
+		//Debugf("setNext:%v,%v", nextData,reflect.TypeOf(nextData))
+
 		o.inputC <- nextData
 		//o.OnStepFinish(nextData)
 	}
 }
 
-func newObservable() IObservable {
+func newObservable(concurrent uint, ctx context.Context,
+	c context.CancelFunc) IObservable {
+	if concurrent < 2 {
+		concurrent = 2
+	}
+	concurrent -= 2
 	o := new(Observable)
+	o.baseCtx = ctx
+	o.baseCancel = c
 	o.outputC = make(chan interface{})
-	o.inputC = make(chan interface{}, 10)
+	o.inputC = make(chan interface{}, concurrent)
 	o.SetCloseHandler(func() {})
 	o.stepFinishHandler = func(i interface{}) {
 	}
 
 	go func() {
-		for item := range o.inputC {
+	loop:
+		for {
+			var ok bool
+			var item interface{}
+			select {
+			case item, ok = <-o.inputC:
+			case <-o.baseCtx.Done():
+				break loop
+			}
+
+			if !ok {
+				break
+			}
+
 			//Debugf("inputC %v %v", item, reflect.TypeOf(item))
 			var nextData interface{}
-
+			var timeout bool
 			switch v := item.(type) {
 			case *Future:
-				nextData = v.GetResult()
+				nextData, timeout = v.GetResult()
+				if timeout {
+					nextData = errors.New("myrxgo future timeout")
+				}
 			default:
 				nextData = v
 			}
 
 			switch nextData.(type) {
 			case Drop, *Drop:
-			case types.Nil:
 			default:
 				//Debugf("setoutput %v", nextData)
 				o.outputC <- nextData
 				o.OnStepFinish(nextData)
 			}
 		}
+		Debugf("newObservable will break outputc")
 		close(o.outputC)
 	}()
 
@@ -165,22 +198,39 @@ func (o *Observable) SetName(name string) {
 }
 
 func From(obj interface{}) IObservable {
-	outOb := newObservable()
+	ctx, cancel := context.WithCancel(context.Background())
+	outOb := newObservable(10, ctx, cancel)
 	outOb.SetName(UUID()[:8])
 	Debugf("ob %v run, From", outOb.GetName())
 	safeGo(func(i ...interface{}) {
 		val := reflect.ValueOf(obj)
 		switch val.Kind() {
 		case reflect.Slice:
+		loop:
 			for i := 0; i < val.Len(); i++ {
-				e := val.Index(i)
-				outOb.SetNext(e.Interface(), func(i interface{}) interface{} {
-					return i
-				})
+				select {
+				case <-ctx.Done():
+					break loop
+				default:
+					e := val.Index(i)
+					outOb.SetNext(e.Interface(), func(i interface{}) interface{} {
+						return i
+					})
+				}
 			}
 		case reflect.Chan:
+			cases := make([]reflect.SelectCase, 2)
+			cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv,
+				Chan: val}
+			cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv,
+				Chan: reflect.ValueOf(ctx.Done())}
+
 			for {
-				v, ok := val.Recv()
+				chosen, v, ok := reflect.Select(cases)
+				if chosen == 1 {
+					break
+				}
+				//v, ok := val.Recv()
 				if !ok {
 					break
 				}
@@ -193,21 +243,7 @@ func From(obj interface{}) IObservable {
 				return i
 			})
 		}
-		outOb.Close()
-	})
-	return outOb
-}
-
-func FromChan(c chan interface{}) IObservable {
-	outOb := newObservable()
-	outOb.SetName(UUID()[:8])
-	Debugf("ob %v run, FromChan", outOb.GetName())
-	safeGo(func(i ...interface{}) {
-		for item := range c {
-			outOb.SetNext(item, func(i interface{}) interface{} {
-				return i
-			})
-		}
+		Debugf("From will close")
 		outOb.Close()
 	})
 	return outOb
@@ -215,7 +251,7 @@ func FromChan(c chan interface{}) IObservable {
 
 func (o *Observable) Merge(inputObservable IObservable,
 	fc func(interface{}, interface{}) interface{}) IObservable {
-	outOb := newObservable()
+	outOb := newObservable(10, o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Merge")
 	Debugf("ob %v run", outOb.GetName())
 
@@ -238,7 +274,7 @@ func (o *Observable) Merge(inputObservable IObservable,
 
 func FromStream(source IObservable) IObservable {
 	inOutOb := make(chan interface{})
-	outOb := FromChan(inOutOb)
+	outOb := From(inOutOb)
 	outOb.SetName(source.GetName() + "-FromStream")
 	Debugf("ob %v run, FromStream", outOb.GetName())
 
@@ -270,6 +306,8 @@ func (o *Observable) Subscribe(obs IObserver) chan int {
 			case error:
 				obs.OnErr(v)
 				findErr = true
+				Debugf("Subscribe:find err %v, cancel", v)
+				o.baseCancel()
 			default:
 				Try(func() {
 					obs.OnNext(v)
@@ -304,6 +342,7 @@ func (o *Observable) Run(fn func(i interface{})) {
 		case error:
 			obs.OnErr(v)
 			findErr = true
+			o.baseCancel()
 		default:
 			Try(func() {
 				obs.OnNext(v)

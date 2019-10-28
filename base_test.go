@@ -310,7 +310,7 @@ func TestSubject(t *testing.T) {
 
 	ch := make(chan interface{})
 	go func() {
-		FromChan(ch).Subscribe(subject)
+		From(ch).Subscribe(subject)
 	}()
 
 	loop := 0
@@ -364,7 +364,7 @@ func TestNewAsyncObserver(t *testing.T) {
 		}
 	}()
 
-	<-FromChan(ch).Subscribe(NewAsyncObserver(
+	<-From(ch).Subscribe(NewAsyncObserver(
 		func(i interface{}) {
 			time.Sleep(time.Millisecond * 100)
 			fmt.Println(i)
@@ -379,20 +379,57 @@ func TestNewAsyncObserver(t *testing.T) {
 func TestAsyncMap(t *testing.T) {
 	// map中的操作是并行的
 	var arr = []int{1, 2, 3, 4, 5}
+	//
+	//start := time.Now()
+	//From(arr).Map(func(i interface{}) interface{} {
+	//	time.Sleep(time.Second)
+	//	return i
+	//}).Run(func(i interface{}) {
+	//	log.Printf("TestAsyncMap %v", i)
+	//})
+	//
+	//end := time.Since(start)
+	//
+	//if end > time.Second*2 {
+	//	t.Fail()
+	//}
+	//
+	//arr = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+	//From(arr).Map(func(i interface{}) interface{} {
+	//	time.Sleep(time.Second * 2)
+	//	fmt.Println("target1", i)
+	//	return i
+	//}, ConcurrentConfig(100)).Map(func(i interface{}) interface{} {
+	//	return i.(int) * 2
+	//}).AsList().Run(func(i interface{}) {
+	//	ret := i.([]interface{})
+	//	fmt.Println(ret)
+	//	Equal(t, ret[0], 2)
+	//	Equal(t, ret[1], 4)
+	//	Equal(t, ret[4], 10)
+	//})
 
-	start := time.Now()
-	From(arr).Map(func(i interface{}) interface{} {
-		time.Sleep(time.Second)
-		return i
-	}).Run(func(i interface{}) {
-		log.Printf("TestAsyncMap %v", i)
-	})
-
-	end := time.Since(start)
-
-	if end > time.Second*2 {
-		t.Fail()
-	}
+	timeoutErr := false
+	<-From(arr).
+		Map(func(i interface{}) interface{} {
+			fmt.Println("timeoutLoop start")
+			time.Sleep(2 * time.Second)
+			fmt.Println("timeoutLoop", i)
+			return i
+		}, ConcurrentConfig(2),
+			TimeoutConfig(1)).
+		Map(func(i interface{}) interface{} {
+			fmt.Println("will show", i)
+			return i
+		}).
+		Subscribe(NewObserverWithErrDone(func(i interface{}) {
+		}, func(e error) {
+			fmt.Println(e)
+			timeoutErr = true
+		}, func() {
+		}))
+	time.Sleep(time.Second*3)
+	Equal(t, timeoutErr, true)
 }
 
 func TestDone(t *testing.T) {

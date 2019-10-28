@@ -32,26 +32,30 @@ for _, item := range tasks {
 type Future struct {
 	isfinished bool
 	result     interface{}
+	isTimeOut  bool
 	resultchan chan interface{}
 	l          sync.Mutex
+	Timeout    uint
 }
 
-func (f *Future) GetResult() interface{} {
+func (f *Future) GetResult() (interface{}, bool) {
 	f.l.Lock()
 	defer f.l.Unlock()
 	if f.isfinished {
-		return f.result
+		return f.result, f.isTimeOut
 	}
 
 	select {
 	// timeout
-	case <-time.After(time.Second * 60):
+	case <-time.After(time.Second * time.Duration(f.Timeout)):
 		f.isfinished = true
 		f.result = nil
-		return nil
+		f.isTimeOut = true
+		return nil, f.isTimeOut
 	case f.result = <-f.resultchan:
 		f.isfinished = true
-		return f.result
+		f.isTimeOut = false
+		return f.result, f.isTimeOut
 	}
 }
 
@@ -68,5 +72,7 @@ func NewFuture() *Future {
 		isfinished: false,
 		result:     nil,
 		resultchan: make(chan interface{}, 1),
+		isTimeOut:  false,
+		Timeout:    60 * 5,
 	}
 }
