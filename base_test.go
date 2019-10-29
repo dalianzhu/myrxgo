@@ -68,7 +68,7 @@ func TestMap(t *testing.T) {
 		}
 		return false
 	}).Map(func(i interface{}) interface{} {
-		log.Println(i.(string))
+		log.Println("show", i.(string))
 		return i
 	}).Subscribe(obs)
 
@@ -140,15 +140,21 @@ func TestSafeRun(t *testing.T) {
 		123,
 	}
 
+	findErr := false
+	isDone := false
 	<-From(arr).
 		Map(func(i interface{}) interface{} {
 			return i.(string) + "_hi"
 		}).AsList().Subscribe(NewObserverWithErrDone(func(i interface{}) {
 	}, func(e error) {
+		findErr = true
 		fmt.Printf("TestSafeRun on_error %s\n", e)
 	}, func() {
+		isDone = true
 		fmt.Println("TestSafeRun done")
 	}))
+	Equal(t, findErr, true)
+	Equal(t, isDone, false)
 	time.Sleep(time.Second * 1)
 }
 
@@ -379,36 +385,37 @@ func TestNewAsyncObserver(t *testing.T) {
 func TestAsyncMap(t *testing.T) {
 	// map中的操作是并行的
 	var arr = []int{1, 2, 3, 4, 5}
-	//
-	//start := time.Now()
-	//From(arr).Map(func(i interface{}) interface{} {
-	//	time.Sleep(time.Second)
-	//	return i
-	//}).Run(func(i interface{}) {
-	//	log.Printf("TestAsyncMap %v", i)
-	//})
-	//
-	//end := time.Since(start)
-	//
-	//if end > time.Second*2 {
-	//	t.Fail()
-	//}
-	//
-	//arr = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
-	//From(arr).Map(func(i interface{}) interface{} {
-	//	time.Sleep(time.Second * 2)
-	//	fmt.Println("target1", i)
-	//	return i
-	//}, ConcurrentConfig(100)).Map(func(i interface{}) interface{} {
-	//	return i.(int) * 2
-	//}).AsList().Run(func(i interface{}) {
-	//	ret := i.([]interface{})
-	//	fmt.Println(ret)
-	//	Equal(t, ret[0], 2)
-	//	Equal(t, ret[1], 4)
-	//	Equal(t, ret[4], 10)
-	//})
 
+	start := time.Now()
+	From(arr).Map(func(i interface{}) interface{} {
+		time.Sleep(time.Second)
+		return i
+	}).Run(func(i interface{}) {
+		log.Printf("TestAsyncMap %v", i)
+	})
+
+	end := time.Since(start)
+
+	if end > time.Second*2 {
+		t.Fail()
+	}
+
+	arr = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+	From(arr).Map(func(i interface{}) interface{} {
+		time.Sleep(time.Second * 2)
+		fmt.Println("target1", i)
+		return i
+	}, ConcurrentConfig(100)).Map(func(i interface{}) interface{} {
+		return i.(int) * 2
+	}).AsList().Run(func(i interface{}) {
+		ret := i.([]interface{})
+		fmt.Println(ret)
+		Equal(t, ret[0], 2)
+		Equal(t, ret[1], 4)
+		Equal(t, ret[4], 10)
+	})
+
+	// 测试 timeout
 	timeoutErr := false
 	<-From(arr).
 		Map(func(i interface{}) interface{} {
@@ -428,11 +435,28 @@ func TestAsyncMap(t *testing.T) {
 			timeoutErr = true
 		}, func() {
 		}))
-	time.Sleep(time.Second*3)
+	time.Sleep(time.Second * 3)
 	Equal(t, timeoutErr, true)
+
+	start = time.Now()
+	arr = []int{1, 2, 3, 4, 5}
+
+	<-From(arr).Map(func(i interface{}) interface{} {
+		time.Sleep(time.Second)
+		fmt.Println("AsyncMap slow", i)
+		return i
+	}, ConcurrentConfig(2)).Subscribe(NewObserverWithErr(func(i interface{}) {
+	}, func(e error) {
+	}))
+	after := time.Since(start)
+	if after < time.Second*2 {
+		fmt.Println("串行失败")
+		t.Fail()
+	}
 }
 
 func TestDone(t *testing.T) {
+	fmt.Println("会引起panic")
 	var source = []interface{}{
 		"1 2", "3 4", errors.New("hello"), "5 6",
 	}
@@ -467,7 +491,7 @@ func TestDone(t *testing.T) {
 		})
 	}, SerialConfig).Subscribe(NewObserverWithErrDone(func(i interface{}) {},
 		func(e error) {
-			fmt.Println("TestDone find err!!!", e)
+			fmt.Println("TestDone find err!!!")
 			findErr = true
 		},
 		func() {},

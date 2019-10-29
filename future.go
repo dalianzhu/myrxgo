@@ -51,6 +51,7 @@ func (f *Future) GetResult() (interface{}, bool) {
 		f.isfinished = true
 		f.result = nil
 		f.isTimeOut = true
+		Errorf("GetResult: timeout:%v", "")
 		return nil, f.isTimeOut
 	case f.result = <-f.resultchan:
 		f.isfinished = true

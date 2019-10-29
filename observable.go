@@ -2,7 +2,6 @@ package myrxgo
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"sync"
 	"time"
@@ -45,8 +44,8 @@ type IObservable interface {
 }
 
 type Observable struct {
-	outputC    chan interface{}
-	inputC     chan interface{}
+	outputC chan interface{}
+	//inputC     chan interface{}
 	baseCtx    context.Context
 	baseCancel context.CancelFunc
 
@@ -68,7 +67,7 @@ func (o *Observable) Close() {
 	safeGo(func(i ...interface{}) {
 		Debugf("ob %v Close", o.name)
 		time.Sleep(time.Microsecond * 10)
-		close(o.inputC)
+		close(o.outputC)
 		o.closeHandler()
 	})
 }
@@ -123,66 +122,62 @@ func (o *Observable) SetNext(i interface{}, f func(interface{}) interface{}) {
 		return
 	default:
 		//Debugf("setNext:%v,%v", nextData,reflect.TypeOf(nextData))
-
-		o.inputC <- nextData
-		//o.OnStepFinish(nextData)
+		o.outputC <- nextData
+		o.OnStepFinish(nextData)
 	}
 }
 
-func newObservable(concurrent uint, ctx context.Context,
+func newObservable(ctx context.Context,
 	c context.CancelFunc) IObservable {
-	if concurrent < 2 {
-		concurrent = 2
-	}
-	concurrent -= 2
+
 	o := new(Observable)
 	o.baseCtx = ctx
 	o.baseCancel = c
 	o.outputC = make(chan interface{})
-	o.inputC = make(chan interface{}, concurrent)
+	//o.inputC = make(chan interface{}, concurrent)
 	o.SetCloseHandler(func() {})
 	o.stepFinishHandler = func(i interface{}) {
 	}
 
-	go func() {
-	loop:
-		for {
-			var ok bool
-			var item interface{}
-			select {
-			case item, ok = <-o.inputC:
-			case <-o.baseCtx.Done():
-				break loop
-			}
-
-			if !ok {
-				break
-			}
-
-			//Debugf("inputC %v %v", item, reflect.TypeOf(item))
-			var nextData interface{}
-			var timeout bool
-			switch v := item.(type) {
-			case *Future:
-				nextData, timeout = v.GetResult()
-				if timeout {
-					nextData = errors.New("myrxgo future timeout")
-				}
-			default:
-				nextData = v
-			}
-
-			switch nextData.(type) {
-			case Drop, *Drop:
-			default:
-				//Debugf("setoutput %v", nextData)
-				o.outputC <- nextData
-				o.OnStepFinish(nextData)
-			}
-		}
-		Debugf("newObservable will break outputc")
-		close(o.outputC)
-	}()
+	//go func() {
+	//loop:
+	//	for {
+	//		var ok bool
+	//		var item interface{}
+	//		select {
+	//		case item, ok = <-o.inputC:
+	//		case <-o.baseCtx.Done():
+	//			break loop
+	//		}
+	//
+	//		if !ok {
+	//			break
+	//		}
+	//
+	//		//Debugf("inputC %v %v", item, reflect.TypeOf(item))
+	//		var nextData interface{}
+	//		var timeout bool
+	//		switch v := item.(type) {
+	//		case *Future:
+	//			nextData, timeout = v.GetResult()
+	//			if timeout {
+	//				nextData = errors.New("myrxgo future timeout")
+	//			}
+	//		default:
+	//			nextData = v
+	//		}
+	//
+	//		switch nextData.(type) {
+	//		case Drop, *Drop:
+	//		default:
+	//			//Debugf("setoutput %v", nextData)
+	//			o.outputC <- nextData
+	//			o.OnStepFinish(nextData)
+	//		}
+	//	}
+	//	Debugf("newObservable will break outputc")
+	//	close(o.outputC)
+	//}()
 
 	return o
 }
@@ -199,7 +194,7 @@ func (o *Observable) SetName(name string) {
 
 func From(obj interface{}) IObservable {
 	ctx, cancel := context.WithCancel(context.Background())
-	outOb := newObservable(10, ctx, cancel)
+	outOb := newObservable(ctx, cancel)
 	outOb.SetName(UUID()[:8])
 	Debugf("ob %v run, From", outOb.GetName())
 	safeGo(func(i ...interface{}) {
@@ -251,7 +246,7 @@ func From(obj interface{}) IObservable {
 
 func (o *Observable) Merge(inputObservable IObservable,
 	fc func(interface{}, interface{}) interface{}) IObservable {
-	outOb := newObservable(10, o.baseCtx, o.baseCancel)
+	outOb := newObservable(o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Merge")
 	Debugf("ob %v run", outOb.GetName())
 
@@ -300,13 +295,14 @@ func (o *Observable) Subscribe(obs IObserver) chan int {
 	go func() {
 		for item := range o.outputC {
 			if findErr {
+				//Debugf("Subscribe find err:continue:%v", "")
 				continue
 			}
 			switch v := item.(type) {
 			case error:
 				obs.OnErr(v)
 				findErr = true
-				Debugf("Subscribe:find err %v, cancel", v)
+				//Debugf("Subscribe:find err will cancel %v:%v", time.Now().UnixNano(), v)
 				o.baseCancel()
 			default:
 				Try(func() {

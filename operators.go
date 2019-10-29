@@ -1,6 +1,7 @@
 package myrxgo
 
 import (
+	"errors"
 	"sync"
 )
 
@@ -17,6 +18,7 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 	isSerial := false
 	var con uint = 10
 	var timeout uint = 60 * 5
+
 	for _, config := range configs {
 		switch v := config.(type) {
 		case *serialConfig:
@@ -27,10 +29,18 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 			timeout = v.value
 		}
 	}
-	outOb := newObservable(con, o.baseCtx, o.baseCancel)
+	outOb := newObservable(o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Map")
 	Debugf("ob %v run", outOb.GetName())
+	if isSerial {
+		con = 0
+	}
 
+	if con >= 1 {
+		con -= 1
+	}
+
+	buf := make(chan *Future, con)
 	go func() {
 	loop:
 		for {
@@ -45,43 +55,49 @@ func (o *Observable) Map(fc func(interface{}) interface{}, configs ...interface{
 				break
 			}
 
-			outOb.SetNext(item, func(i interface{}) interface{} {
-				future := NewFuture()
-				future.Timeout = timeout
-				tpitem := item
-				if isSerial == false {
-					go Try(func() {
-						future.SetResult(fc(tpitem))
-					}, func(rec interface{}, stack []byte) {
-						future.SetResult(SystemPanicHandler(rec, stack))
-					})
-				} else {
-					Try(func() {
-						future.SetResult(fc(tpitem))
-					}, func(rec interface{}, stack []byte) {
-						future.SetResult(SystemPanicHandler(rec, stack))
-					})
-				}
-				return future
+			future := NewFuture()
+			future.Timeout = timeout
+			buf <- future
+
+			switch item.(type) {
+			case error:
+				future.SetResult(item)
+			default:
+				go Try(func() {
+					future.SetResult(fc(item))
+				}, func(rec interface{}, stack []byte) {
+					future.SetResult(SystemPanicHandler(rec, stack))
+				})
+			}
+		}
+		close(buf)
+	}()
+	go func() {
+		for future := range buf {
+			ret, timeout := future.GetResult()
+			if timeout {
+				ret = errors.New("myrxgo future timeout")
+			}
+			//Debugf("Map future:%v", ret)
+			outOb.SetNext(ret, func(i interface{}) interface{} {
+				return i
 			})
 		}
 		outOb.Close()
 	}()
+
 	return outOb
 }
 
 func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interface{}) IObservable {
 	isSerial := false
-	var con uint = 10
 	for _, config := range configs {
-		switch v := config.(type) {
+		switch config.(type) {
 		case *serialConfig:
 			isSerial = true
-		case *concurrentConfig:
-			con = v.value
 		}
 	}
-	outOb := newObservable(con, o.baseCtx, o.baseCancel)
+	outOb := newObservable(o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-FlatMap")
 	Debugf("ob %v run", outOb.GetName())
 
@@ -132,7 +148,7 @@ func (o *Observable) FlatMap(fn func(interface{}) IObservable, configs ...interf
 }
 
 func (o *Observable) Distinct() IObservable {
-	outOb := newObservable(10, o.baseCtx, o.baseCancel)
+	outOb := newObservable(o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Distinct")
 	Debugf("ob %v run", outOb.GetName())
 
@@ -156,27 +172,26 @@ func (o *Observable) Distinct() IObservable {
 
 // Filter return true可以通过
 func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
-	outOb := newObservable(10, o.baseCtx, o.baseCancel)
+	outOb := newObservable(o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-Filter")
 	Debugf("ob %v run", outOb.GetName())
 	go func(i ...interface{}) {
 		for item := range o.outputC {
 			outOb.SetNext(item, func(i interface{}) interface{} {
-				future := NewFuture()
-				tpitem := item
-				go func() {
-					Try(func() {
-						ok := fc(tpitem)
-						if ok {
-							future.SetResult(tpitem)
-						} else {
-							future.SetResult(new(Drop))
-						}
-					}, func(rec interface{}, stack []byte) {
-						future.SetResult(SystemPanicHandler(rec, stack))
-					})
-				}()
-				return future
+				var ok bool
+				var ret interface{}
+
+				Try(func() {
+					ok = fc(item)
+					if ok {
+						ret = item
+					} else {
+						ret = new(Drop)
+					}
+				}, func(rec interface{}, stack []byte) {
+					ret = SystemPanicHandler(rec, stack)
+				})
+				return ret
 			})
 		}
 		outOb.Close()
@@ -186,7 +201,7 @@ func (o *Observable) Filter(fc func(interface{}) bool) IObservable {
 }
 
 func (o *Observable) AsList() IObservable {
-	outOb := newObservable(10, o.baseCtx, o.baseCancel)
+	outOb := newObservable(o.baseCtx, o.baseCancel)
 	outOb.SetName(o.name + "-AsList")
 	Debugf("ob %v run", outOb.GetName())
 
