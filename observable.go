@@ -309,6 +309,8 @@ func (o *Observable) Subscribe(obs IObserver) chan int {
 					obs.OnNext(v)
 				}, func(rec interface{}, stack []byte) {
 					obs.OnErr(SystemPanicHandler(rec, stack))
+					findErr = true
+					o.baseCancel()
 				})
 			}
 		}
